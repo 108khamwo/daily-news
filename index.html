@@ -6,10 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>รวมข่าวประจำวัน - Daily News App</title>
     
-    <!-- โหลด Tailwind CSS ผ่าน CDN เพื่อให้มั่นใจว่าการแสดงผลสวยงามทันที -->
+    <!-- โหลด Tailwind CSS ผ่าน CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- เพิ่มฟอนต์ภาษาไทยเพื่อความทันสมัย -->
+    <!-- ฟอนต์ภาษาไทย -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@100..900&display=swap" rel="stylesheet">
@@ -24,14 +24,9 @@
     </style>
   </head>
   <body>
-    <!-- จุดที่ React จะนำแอปไปแสดงผล -->
     <div id="root"></div>
 
-    <!-- 
-      การเชื่อมต่อไฟล์หลัก: 
-      ตรวจสอบให้แน่ใจว่าไฟล์ App.jsx ของคุณอยู่ในโฟลเดอร์ src 
-      และมีโค้ดส่วน createRoot(document.getElementById('root')) อยู่ด้านล่างสุดของไฟล์นั้น
-    -->
-    <script type="module" src="/src/App.jsx"></script>
+    <!-- แก้ไขจุดนี้: ลบ / หน้า src ออกเพื่อให้เป็น Relative Path -->
+    <script type="module" src="src/App.jsx"></script>
   </body>
 </html>
