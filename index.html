@@ -187,14 +187,19 @@
                             <div className="bg-gradient-to-tr from-blue-600 to-blue-500 p-2 rounded-xl text-white shadow-md shadow-blue-200">
                                 <Icon name="newspaper" size={22} />
                             </div>
-                            <h1 className="text-lg font-bold text-gray-800 tracking-tight hidden sm:block">รวมข่าวรายวัน CM108</h1>
+                            <div className="flex flex-col">
+                                <h1 className="text-lg font-bold text-gray-800 tracking-tight leading-none">รวมข่าวรายวัน CM108</h1>
+                                <span className="text-[10px] text-orange-500 font-bold mt-1 tracking-wide">*ข่าวจะถูกลบอัตโนมัติเมื่ออายุเกิน 30 วัน</span>
+                            </div>
                         </div>
                         
                         <div className="flex items-center gap-2 md:gap-3">
                             {/* ปุ่มเข้าสู่ระบบแก้ไขวันที่ (แสดงเฉพาะตอนอยู่หน้าแรก) */}
                             {view === 'dashboard' && (
-                                <button onClick={() => setView('standalone-editor')} className="bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-2 transition-all active:scale-95 text-sm" title="เครื่องมือแก้ปกอิสระ">
-                                    <Icon name="image-plus" size={18} /> <span className="hidden sm:inline">แก้ไขวันที่บนปกข่าว</span>
+                                <button onClick={() => setView('standalone-editor')} className="bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-1.5 md:gap-2 transition-all active:scale-95 text-sm" title="เครื่องมือแก้ปกอิสระ">
+                                    <Icon name="image-plus" size={18} /> 
+                                    <span className="sm:hidden whitespace-nowrap">แก้วันที่ข่าว</span>
+                                    <span className="hidden sm:inline">แก้ไขวันที่บนปกข่าว</span>
                                 </button>
                             )}
 
@@ -710,6 +715,10 @@
             const [imageActionPrompt, setImageActionPrompt] = useState(null);
             const [showEditor, setShowEditor] = useState(null);
             
+            // เช็กว่าเป็นมือถือ/แท็บเล็ต หรือไม่รองรับการคัดลอกรูป เพื่อซ่อนปุ่มคัดลอก
+            const isMobileOrTablet = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            const canCopyImage = typeof window !== 'undefined' && typeof window.ClipboardItem !== 'undefined' && !isMobileOrTablet;
+
             const used = item.textCopied && (item.imageBase64 ? item.imageCopied : true);
 
             const handleCopyText = () => {
@@ -887,11 +896,13 @@
                             {/* Prominent Action Buttons */}
                             {!imageActionPrompt && (
                                 <div className="absolute bottom-4 inset-x-4 flex justify-center gap-3">
-                                    <button onClick={() => handleImageActionClick('copy')} className="flex-1 bg-white/95 backdrop-blur-md py-3 rounded-2xl shadow-lg text-gray-800 hover:text-blue-600 font-bold text-sm flex items-center justify-center gap-2 border border-white/50 transition-all hover:scale-105 active:scale-95">
-                                        {copiedImg ? <Icon name="check" size={18} className="text-green-500" /> : <Icon name="copy" size={18} />}
-                                        {copiedImg ? 'คัดลอกแล้ว' : 'คัดลอกรูป'}
-                                    </button>
-                                    <button onClick={() => handleImageActionClick('download')} className="flex-1 bg-white/95 backdrop-blur-md py-3 rounded-2xl shadow-lg text-gray-800 hover:text-blue-600 font-bold text-sm flex items-center justify-center gap-2 border border-white/50 transition-all hover:scale-105 active:scale-95">
+                                    {canCopyImage && (
+                                        <button onClick={() => handleImageActionClick('copy')} className="flex-1 bg-blue-500 hover:bg-blue-600 py-2.5 rounded-xl shadow-md text-white font-medium text-[15px] flex items-center justify-center gap-2 transition-transform active:scale-95">
+                                            {copiedImg ? <Icon name="check" size={18} className="text-white" /> : <Icon name="copy" size={18} />}
+                                            {copiedImg ? 'คัดลอกแล้ว' : 'คัดลอกรูป'}
+                                        </button>
+                                    )}
+                                    <button onClick={() => handleImageActionClick('download')} className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2.5 rounded-xl shadow-md text-white font-medium text-[15px] flex items-center justify-center gap-2 transition-transform active:scale-95">
                                         <Icon name="download" size={18} /> โหลดรูป
                                     </button>
                                 </div>
