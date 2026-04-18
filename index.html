@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>รวมข่าวประจำวัน - Daily News</title>
+    <title>รวมข่าวรายวัน CM108</title>
     
     <!-- Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -93,8 +93,15 @@
                             let width = img.width; let height = img.height;
                             if (width > 1200) { height = (height * 1200) / width; width = 1200; }
                             canvas.width = width; canvas.height = height;
-                            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.7));
+                            
+                            const ctx = canvas.getContext('2d');
+                            // ปรับปรุงคุณภาพการวาดรูปลดรอยหยัก
+                            ctx.imageSmoothingEnabled = true;
+                            ctx.imageSmoothingQuality = 'high';
+                            
+                            ctx.drawImage(img, 0, 0, width, height);
+                            // ปรับคุณภาพ JPEG เป็น 0.95 เพื่อแก้ปัญหารูปแตกและมีเส้นแปลกๆ
+                            resolve(canvas.toDataURL('image/jpeg', 0.95));
                         };
                     };
                 }
@@ -118,11 +125,15 @@
             const [news, setNews] = useState([]);
             const [view, setView] = useState('dashboard');
             const [loading, setLoading] = useState(true);
+            const [dataLoading, setDataLoading] = useState(true); 
             const [editingItem, setEditingItem] = useState(null);
 
             useEffect(() => {
                 signInAnonymously(auth).catch(() => setUser({ uid: 'guest' }));
-                const unsub = onAuthStateChanged(auth, (u) => { if(u) setUser(u); setLoading(false); });
+                const unsub = onAuthStateChanged(auth, (u) => { 
+                    if(u) setUser(u); 
+                    setLoading(false); 
+                });
                 return () => unsub();
             }, []);
 
@@ -132,6 +143,7 @@
                     const data = [];
                     snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
                     setNews(data.sort((a,b) => b.timestamp - a.timestamp));
+                    setDataLoading(false); 
                     
                     const limit = Date.now() - (30 * 24 * 60 * 60 * 1000);
                     data.forEach(item => { if(item.timestamp < limit) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'news', item.id)); });
@@ -139,10 +151,17 @@
                 return () => unsub();
             }, [user]);
 
-            if (loading) return (
-                <div className="h-screen flex flex-col items-center justify-center space-y-4">
-                    <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-200 border-t-blue-600"></div>
-                    <span className="text-gray-500 font-medium text-sm animate-pulse">กำลังโหลดระบบ...</span>
+            if (loading || dataLoading) return (
+                <div className="h-screen flex flex-col items-center justify-center space-y-6">
+                    <div className="relative w-20 h-20 flex items-center justify-center">
+                        <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+                        <div className="absolute inset-0 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <Icon name="newspaper" className="text-blue-600 relative z-10" size={32} />
+                    </div>
+                    <div className="text-center">
+                        <h2 className="text-xl font-bold text-gray-800 mb-1">รวมข่าวรายวัน CM108</h2>
+                        <p className="text-gray-500 font-medium text-sm animate-pulse">กำลังโหลดข้อมูลข่าวสาร...</p>
+                    </div>
                 </div>
             );
 
@@ -154,7 +173,7 @@
                             <div className="bg-gradient-to-tr from-blue-600 to-blue-500 p-2 rounded-xl text-white shadow-md shadow-blue-200">
                                 <Icon name="newspaper" size={22} />
                             </div>
-                            <h1 className="text-lg font-bold text-gray-800 tracking-tight hidden sm:block">Daily News</h1>
+                            <h1 className="text-lg font-bold text-gray-800 tracking-tight hidden sm:block">รวมข่าวรายวัน CM108</h1>
                         </div>
                         
                         {view === 'dashboard' ? (
@@ -183,11 +202,16 @@
         // --- Dashboard View ---
         const Dashboard = ({ news, onEdit }) => {
             const [selWeek, setSelWeek] = useState('');
+            const [selDate, setSelDate] = useState('');
+            
             const weeks = new Map();
             news.forEach(n => { const info = getWeekInfo(n.timestamp); weeks.set(info.key, info.label); });
             const sortedKeys = Array.from(weeks.keys()).sort((a,b) => b - a);
 
             useEffect(() => { if (sortedKeys.length > 0 && !selWeek) setSelWeek(sortedKeys[0].toString()); }, [sortedKeys]);
+            
+            // รีเซ็ตวันที่เมื่อเปลี่ยนสัปดาห์
+            useEffect(() => { setSelDate(''); }, [selWeek]);
 
             if (news.length === 0) return (
                 <div className="text-center py-20 bg-white rounded-3xl border border-gray-100 shadow-sm mt-10">
@@ -199,29 +223,43 @@
                 </div>
             );
 
-            const filtered = news.filter(n => getWeekInfo(n.timestamp).key.toString() === selWeek);
-            const groups = filtered.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
+            const filteredByWeek = news.filter(n => getWeekInfo(n.timestamp).key.toString() === selWeek);
+            const allGroups = filteredByWeek.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
+            
+            const availableDates = Object.keys(allGroups);
+            const displayGroups = selDate ? { [selDate]: allGroups[selDate] } : allGroups;
 
             return (
                 <div className="space-y-10">
                     {/* Filter Section */}
-                    <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-gray-100 gap-4">
+                    <div className="flex flex-col md:flex-row items-center justify-between bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-gray-100 gap-4">
                         <div className="flex items-center gap-2.5 font-medium text-gray-600">
                             <Icon name="calendar-days" className="text-blue-500" size={20} />
-                            <span>ดูข่าวประจำสัปดาห์:</span>
+                            <span className="whitespace-nowrap">ตัวกรองข่าว:</span>
                         </div>
-                        <div className="relative w-full sm:w-72">
-                            <select value={selWeek} onChange={e => setSelWeek(e.target.value)} className="w-full bg-gray-50/50 p-3 pl-4 pr-10 rounded-xl font-medium text-gray-700 outline-none border border-gray-200 hover:border-blue-300 transition-colors appearance-none cursor-pointer text-sm">
-                                {sortedKeys.map((k, i) => <option key={k} value={k.toString()}>{i === 0 ? `ล่าสุด (${weeks.get(k)})` : weeks.get(k)}</option>)}
-                            </select>
-                            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                <Icon name="chevron-down" size={18} />
+                        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-grow justify-end">
+                            <div className="relative w-full sm:w-64">
+                                <select value={selWeek} onChange={e => setSelWeek(e.target.value)} className="w-full bg-gray-50/50 p-3 pl-4 pr-10 rounded-xl font-medium text-gray-700 outline-none border border-gray-200 hover:border-blue-300 transition-colors appearance-none cursor-pointer text-sm">
+                                    {sortedKeys.map((k, i) => <option key={k} value={k.toString()}>{i === 0 ? `สัปดาห์ล่าสุด (${weeks.get(k)})` : weeks.get(k)}</option>)}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                    <Icon name="chevron-down" size={18} />
+                                </div>
+                            </div>
+                            <div className="relative w-full sm:w-56">
+                                <select value={selDate} onChange={e => setSelDate(e.target.value)} className="w-full bg-gray-50/50 p-3 pl-4 pr-10 rounded-xl font-medium text-gray-700 outline-none border border-gray-200 hover:border-blue-300 transition-colors appearance-none cursor-pointer text-sm">
+                                    <option value="">ทุกวันในสัปดาห์</option>
+                                    {availableDates.map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                    <Icon name="calendar" size={16} />
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     {/* News Feed */}
-                    {Object.keys(groups).map(date => (
+                    {Object.keys(displayGroups).map(date => (
                         <div key={date} className="space-y-6 fade-in">
                             <div className="flex items-center gap-4">
                                 <h2 className="flex items-center gap-2.5 font-semibold text-gray-700 bg-white px-5 py-2.5 rounded-full shadow-sm border border-gray-100 text-sm">
@@ -231,7 +269,7 @@
                             </div>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {groups[date].map(item => <NewsCard key={item.id} item={item} onEdit={onEdit} db={db} appId={appId} />)}
+                                {displayGroups[date].map(item => <NewsCard key={item.id} item={item} onEdit={onEdit} db={db} appId={appId} />)}
                             </div>
                         </div>
                     ))}
@@ -244,12 +282,10 @@
             const canvasRef = useRef(null);
             const [image, setImage] = useState(null);
 
-            // ตั้งค่าเริ่มต้นเป็นวันที่ปัจจุบัน
             const [day, setDay] = useState(() => new Date().getDate());
             const [month, setMonth] = useState(() => new Date().getMonth());
             const [year, setYear] = useState(() => new Date().getFullYear() + 543);
 
-            // ค่า Default จากโค้ดที่แนบมา
             const [rectY, setRectY] = useState(923); 
             const [rectHeight, setRectHeight] = useState(40);
             const [fontSize, setFontSize] = useState(31);
@@ -284,7 +320,7 @@
 
                 ctx.save();
                 ctx.fillStyle = 'white';
-                ctx.font = `600 ${fontSize}px "Prompt", "Noto Sans Thai", sans-serif`;
+                ctx.font = `600 ${fontSize}px "Prompt"`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 
@@ -298,8 +334,11 @@
 
             useEffect(() => {
                 if (image) {
-                    const timer = setTimeout(drawCanvas, 50);
-                    return () => clearTimeout(timer);
+                    // ใช้ document.fonts.load แทน ready เพื่อบังคับโหลดฟอนต์ตามน้ำหนักที่กำหนดก่อนวาด ป้องกันฟอนต์เพี้ยน
+                    document.fonts.load(`600 ${fontSize}px "Prompt"`).then(() => {
+                        const timer = setTimeout(drawCanvas, 50);
+                        return () => clearTimeout(timer);
+                    });
                 }
             }, [image, day, month, year, rectY, rectHeight, fontSize]);
 
@@ -325,6 +364,9 @@
 
             return (
                 <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center p-4 pt-12 md:p-6 animate-fade-in">
+                    {/* Element ซ่อนไว้เพื่อบังคับโหลดฟอนต์ Prompt น้ำหนัก 600 */}
+                    <span style={{ fontFamily: '"Prompt"', fontWeight: 600, position: 'absolute', opacity: 0, pointerEvents: 'none' }}>โหลดฟอนต์ Prompt</span>
+                    
                     <div className="bg-white rounded-[2rem] w-full max-w-5xl max-h-[85vh] md:max-h-[95vh] overflow-y-auto shadow-2xl flex flex-col">
                         <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white/95 backdrop-blur z-10">
                             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
