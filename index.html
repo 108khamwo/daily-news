@@ -14,7 +14,8 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- เพิ่มฟอนต์ Prompt เข้ามาเพื่อใช้งานใน Canvas Editor ตามคำสั่ง -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
         body { 
@@ -238,6 +239,191 @@
             );
         };
 
+        // --- Date Editor Modal Component ---
+        const DateEditorModal = ({ imageUrl, action, onClose, onComplete }) => {
+            const canvasRef = useRef(null);
+            const [image, setImage] = useState(null);
+
+            // ตั้งค่าเริ่มต้นเป็นวันที่ปัจจุบัน
+            const [day, setDay] = useState(() => new Date().getDate());
+            const [month, setMonth] = useState(() => new Date().getMonth());
+            const [year, setYear] = useState(() => new Date().getFullYear() + 543);
+
+            // ค่า Default จากโค้ดที่แนบมา
+            const [rectY, setRectY] = useState(923); 
+            const [rectHeight, setRectHeight] = useState(40);
+            const [fontSize, setFontSize] = useState(31);
+            
+            const [showSettings, setShowSettings] = useState(false);
+
+            useEffect(() => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.onload = () => setImage(img);
+                img.src = imageUrl;
+            }, [imageUrl]);
+
+            const drawCanvas = () => {
+                if (!image || !canvasRef.current) return;
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+
+                canvas.width = image.width;
+                canvas.height = image.height;
+
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+
+                ctx.drawImage(image, 0, 0);
+
+                const boxWidth = image.width * 0.6; 
+                const boxX = (image.width - boxWidth) / 2;
+                
+                ctx.fillStyle = 'black';
+                ctx.fillRect(boxX, rectY - (rectHeight / 2), boxWidth, rectHeight);
+
+                ctx.save();
+                ctx.fillStyle = 'white';
+                ctx.font = `600 ${fontSize}px "Prompt", "Noto Sans Thai", sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                const dateText = `-${day} ${THAI_MONTHS[month]} ${year}-`;
+                
+                ctx.translate(image.width / 2, rectY);
+                ctx.scale(1, 1.15); 
+                ctx.fillText(dateText, 0, 0);
+                ctx.restore();
+            };
+
+            useEffect(() => {
+                if (image) {
+                    const timer = setTimeout(drawCanvas, 50);
+                    return () => clearTimeout(timer);
+                }
+            }, [image, day, month, year, rectY, rectHeight, fontSize]);
+
+            const handleConfirm = () => {
+                if (!canvasRef.current) return;
+                if (action === 'download') {
+                    const link = document.createElement('a');
+                    link.download = `edited-news-${day}-${month + 1}-${year}.png`;
+                    link.href = canvasRef.current.toDataURL('image/png');
+                    link.click();
+                    onComplete();
+                } else if (action === 'copy') {
+                    canvasRef.current.toBlob(async (blob) => {
+                        try {
+                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                            onComplete();
+                        } catch (err) {
+                            alert('เบราว์เซอร์ไม่รองรับการคัดลอกรูปภาพโดยตรง กรุณาใช้ปุ่ม "ดาวน์โหลด" แทนครับ');
+                        }
+                    }, 'image/png');
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-start md:items-center justify-center p-4 pt-12 md:p-6 animate-fade-in">
+                    <div className="bg-white rounded-[2rem] w-full max-w-5xl max-h-[85vh] md:max-h-[95vh] overflow-y-auto shadow-2xl flex flex-col">
+                        <div className="p-5 md:p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white/95 backdrop-blur z-10">
+                            <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                                <Icon name="calendar-edit" className="text-blue-500" />
+                                แก้ไขวันที่บนปกข่าว
+                            </h2>
+                            <button onClick={onClose} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-500 transition">
+                                <Icon name="x" size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            <div className="lg:col-span-5 space-y-6">
+                                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200">
+                                    <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                                        <Icon name="calendar" size={18} className="text-blue-500" />
+                                        กำหนดวันที่
+                                    </h3>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">วัน</label>
+                                            <input 
+                                                type="number" min="1" max="31" value={day} 
+                                                onChange={(e) => setDay(Math.min(31, Math.max(1, parseInt(e.target.value) || 1)))}
+                                                className="w-full p-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-400 font-bold text-center"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">เดือน</label>
+                                            <select value={month} onChange={(e) => setMonth(parseInt(e.target.value))} className="w-full p-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-400 font-bold text-center appearance-none">
+                                                {THAI_MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">ปี (พ.ศ.)</label>
+                                            <input 
+                                                type="number" value={year} 
+                                                onChange={(e) => setYear(parseInt(e.target.value) || year)}
+                                                className="w-full p-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-400 font-bold text-center"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button onClick={() => setShowSettings(!showSettings)} type="button" className="w-full flex items-center justify-center gap-2 py-2 text-sm font-bold text-gray-400 hover:text-blue-600 transition">
+                                    <Icon name={showSettings ? "chevron-up" : "settings"} size={16} />
+                                    {showSettings ? "ซ่อนการตั้งค่าเพิ่มเติม" : "ตั้งค่าเพิ่มเติม (ตำแหน่ง/ขนาด)"}
+                                </button>
+
+                                {showSettings && (
+                                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 animate-fade-in">
+                                        <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                                            <Icon name="move-vertical" size={18} className="text-blue-500" />
+                                            ปรับแต่งตำแหน่งและขนาด
+                                        </h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <div className="flex justify-between items-end mb-1">
+                                                    <label className="text-xs font-bold text-gray-500">ตำแหน่งแนวตั้ง (Y)</label>
+                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{rectY}</span>
+                                                </div>
+                                                <input type="range" min="0" max={image ? image.height : 2000} value={rectY} onChange={(e) => setRectY(parseInt(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                                            </div>
+                                            <div>
+                                                <div className="flex justify-between items-end mb-1">
+                                                    <label className="text-xs font-bold text-gray-500">ความหนาแถบดำ</label>
+                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{rectHeight}</span>
+                                                </div>
+                                                <input type="range" min="10" max="200" value={rectHeight} onChange={(e) => setRectHeight(parseInt(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                                            </div>
+                                            <div>
+                                                <div className="flex justify-between items-end mb-1">
+                                                    <label className="text-xs font-bold text-gray-500">ขนาดตัวอักษร</label>
+                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{fontSize}</span>
+                                                </div>
+                                                <input type="range" min="10" max="150" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button onClick={handleConfirm} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                                    {action === 'copy' ? <><Icon name="copy" size={20} /> ยืนยันการคัดลอกรูปลงเครื่อง</> : <><Icon name="download" size={20} /> ยืนยันการดาวน์โหลดรูปภาพ</>}
+                                </button>
+                            </div>
+
+                            <div className="lg:col-span-7 flex flex-col">
+                                <div className="bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 flex-grow flex items-center justify-center relative min-h-[200px] py-4">
+                                    {!image && <div className="text-gray-400 font-bold animate-pulse flex items-center gap-2"><Icon name="loader" size={18} /> กำลังโหลดรูปภาพต้นฉบับ...</div>}
+                                    <canvas ref={canvasRef} className="max-w-full h-auto max-h-[35vh] md:max-h-[45vh] shadow-md" style={{ display: image ? 'block' : 'none' }} />
+                                </div>
+                                <p className="text-center text-xs text-gray-400 mt-3 font-medium">รูปตัวอย่างสำหรับการแก้ไข (ระบบจะบันทึกรูปจริงด้วยความละเอียด 100%)</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // --- News Card Component ---
         const NewsCard = ({ item, onEdit, db, appId }) => {
             const [copiedText, setCopiedText] = useState(false);
@@ -245,6 +431,10 @@
             const [isExpanded, setIsExpanded] = useState(false);
             const [showMenu, setShowMenu] = useState(false);
             const [confirmDel, setConfirmDel] = useState(false);
+            
+            // สถานะเพิ่มเติมสำหรับการตรวจสอบว่าจะแก้รูปหรือไม่
+            const [imageActionPrompt, setImageActionPrompt] = useState(null);
+            const [showEditor, setShowEditor] = useState(null);
             
             const used = item.textCopied && (item.imageBase64 ? item.imageCopied : true);
 
@@ -273,13 +463,13 @@
                 }
             };
 
-            const handleDownload = () => {
+            const executeDownload = () => {
                 const a = document.createElement('a'); a.href = item.imageBase64; a.download = `news-${item.id}.jpg`; a.click();
                 setCopiedImg(true); setTimeout(() => setCopiedImg(false), 2000);
                 updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'news', item.id), { imageCopied: true });
             };
             
-            const handleCopyImageFallback = async () => {
+            const executeCopyImageFallback = async () => {
                 try {
                     const response = await fetch(item.imageBase64);
                     const blob = await response.blob();
@@ -300,6 +490,25 @@
                 } catch (err) {
                     alert('เบราว์เซอร์ไม่รองรับการคัดลอกรูปภาพโดยตรง กรุณาใช้ปุ่ม "ดาวน์โหลด" แทนครับ');
                 }
+            };
+
+            // ฟังก์ชันที่ผูกกับปุ่มหลัก เพื่อเรียกระบบถาม
+            const executeImageAction = async (wantsToEdit) => {
+                const action = imageActionPrompt;
+                setImageActionPrompt(null);
+                
+                if (wantsToEdit) {
+                    setShowEditor(action);
+                } else {
+                    if (action === 'copy') await executeCopyImageFallback();
+                    if (action === 'download') executeDownload();
+                }
+            };
+
+            const handleEditorComplete = () => {
+                setShowEditor(null);
+                setCopiedImg(true); setTimeout(() => setCopiedImg(false), 2000);
+                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'news', item.id), { imageCopied: true });
             };
 
             const handleDelete = async () => {
@@ -390,15 +599,36 @@
                         <div className={`relative aspect-[4/3] bg-gray-100 ${used ? 'opacity-85' : ''}`}>
                             <img src={item.imageBase64} className="w-full h-full object-contain" alt="news" />
                             
-                            {/* Always visible action buttons for mobile friendly */}
-                            <div className="absolute bottom-3 right-3 flex gap-2">
-                                <button onClick={handleCopyImageFallback} className="bg-white/90 backdrop-blur-md p-2.5 rounded-full shadow-md text-gray-700 hover:text-blue-600 hover:bg-white transition-colors border border-gray-100" title="คัดลอกรูปภาพ">
-                                    {copiedImg ? <Icon name="check" size={20} className="text-green-500" /> : <Icon name="copy" size={20} />}
-                                </button>
-                                <button onClick={handleDownload} className="bg-white/90 backdrop-blur-md p-2.5 rounded-full shadow-md text-gray-700 hover:text-blue-600 hover:bg-white transition-colors border border-gray-100" title="ดาวน์โหลดรูปภาพ">
-                                    <Icon name="download" size={20} />
-                                </button>
-                            </div>
+                            {/* Prominent Action Buttons (ปรับปรุงให้ใหญ่และกดง่ายขึ้น) */}
+                            {!imageActionPrompt && (
+                                <div className="absolute bottom-4 inset-x-4 flex justify-center gap-3">
+                                    <button onClick={() => setImageActionPrompt('copy')} className="flex-1 bg-white/95 backdrop-blur-md py-3 rounded-2xl shadow-lg text-gray-800 hover:text-blue-600 font-bold text-sm flex items-center justify-center gap-2 border border-white/50 transition-all hover:scale-105 active:scale-95">
+                                        {copiedImg ? <Icon name="check" size={18} className="text-green-500" /> : <Icon name="copy" size={18} />}
+                                        {copiedImg ? 'คัดลอกแล้ว' : 'คัดลอกรูป'}
+                                    </button>
+                                    <button onClick={() => setImageActionPrompt('download')} className="flex-1 bg-white/95 backdrop-blur-md py-3 rounded-2xl shadow-lg text-gray-800 hover:text-blue-600 font-bold text-sm flex items-center justify-center gap-2 border border-white/50 transition-all hover:scale-105 active:scale-95">
+                                        <Icon name="download" size={18} /> โหลดรูป
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Prompt Overlay (เมื่อกดปุ่มคัดลอก/ดาวน์โหลด) */}
+                            {imageActionPrompt && (
+                                <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center animate-fade-in">
+                                    <div className="bg-white rounded-2xl p-5 shadow-2xl w-full max-w-[280px] border border-white/20">
+                                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                                            <Icon name="calendar-edit" size={20} />
+                                        </div>
+                                        <h3 className="text-base font-bold text-gray-800 mb-1">ต้องการแก้ไขวันที่หรือไม่?</h3>
+                                        <p className="text-xs text-gray-500 mb-4">ระบบจะใส่แถบวันที่ปัจจุบันลงบนรูปภาพ</p>
+                                        <div className="flex flex-col gap-2">
+                                            <button onClick={() => executeImageAction(true)} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 active:scale-[0.98] transition">ต้องการ</button>
+                                            <button onClick={() => executeImageAction(false)} className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 active:scale-[0.98] transition">ไม่ต้องการ</button>
+                                            <button onClick={() => setImageActionPrompt(null)} className="w-full py-1.5 text-gray-400 hover:text-gray-600 font-medium text-xs mt-1 transition">ยกเลิกรายการ</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -426,6 +656,17 @@
                             </button>
                         </div>
                     </div>
+                    
+                    {/* Render Date Editor Modal via Portal เพื่อแก้ปัญหา fixed ไม่เต็มจอ */}
+                    {showEditor && ReactDOM.createPortal(
+                        <DateEditorModal 
+                            imageUrl={item.imageBase64} 
+                            action={showEditor} 
+                            onClose={() => setShowEditor(null)} 
+                            onComplete={handleEditorComplete} 
+                        />,
+                        document.body
+                    )}
                 </div>
             );
         };
