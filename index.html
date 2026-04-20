@@ -159,7 +159,7 @@
                     setNews(data.sort((a,b) => b.timestamp - a.timestamp));
                     setDataLoading(false); 
                     
-                    const limit = Date.now() - (30 * 24 * 60 * 60 * 1000);
+                    const limit = Date.now() - (60 * 24 * 60 * 60 * 1000);
                     data.forEach(item => { if(item.timestamp < limit) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'news', item.id)); });
                 });
                 return () => unsub();
@@ -189,7 +189,7 @@
                             </div>
                             <div className="flex flex-col">
                                 <h1 className="text-lg font-bold text-gray-800 tracking-tight leading-none">รวมข่าวรายวัน CM108</h1>
-                                <span className="text-[10px] text-orange-500 font-bold mt-1 tracking-wide">*ข่าวจะถูกลบอัตโนมัติเมื่ออายุเกิน 30 วัน</span>
+                                <span className="text-[10px] text-orange-500 font-bold mt-1 tracking-wide">*ข่าวจะถูกลบอัตโนมัติเมื่ออายุเกิน 60 วัน</span>
                             </div>
                         </div>
                         
@@ -439,15 +439,25 @@
         const Dashboard = ({ news, onEdit }) => {
             const [selWeek, setSelWeek] = useState('');
             const [selDate, setSelDate] = useState('');
+            const [extraWeeks, setExtraWeeks] = useState(0);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [calendarDate, setCalendarDate] = useState('');
             
             const weeks = new Map();
             news.forEach(n => { const info = getWeekInfo(n.timestamp); weeks.set(info.key, info.label); });
             const sortedKeys = Array.from(weeks.keys()).sort((a,b) => b - a);
 
-            useEffect(() => { if (sortedKeys.length > 0 && !selWeek) setSelWeek(sortedKeys[0].toString()); }, [sortedKeys]);
+            useEffect(() => { 
+                if (sortedKeys.length > 0 && !selWeek && !searchQuery && !calendarDate) {
+                    setSelWeek(sortedKeys[0].toString()); 
+                }
+            }, [sortedKeys, selWeek, searchQuery, calendarDate]);
             
-            // รีเซ็ตวันที่เมื่อเปลี่ยนสัปดาห์
-            useEffect(() => { setSelDate(''); }, [selWeek]);
+            // รีเซ็ตวันที่และจำนวนสัปดาห์เพิ่มเติมเมื่อเปลี่ยนสัปดาห์หลัก
+            useEffect(() => { 
+                setSelDate(''); 
+                setExtraWeeks(0);
+            }, [selWeek]);
 
             if (news.length === 0) return (
                 <div className="text-center py-20 bg-white rounded-3xl border border-gray-100 shadow-sm mt-10">
@@ -459,60 +469,137 @@
                 </div>
             );
 
-            const filteredByWeek = news.filter(n => getWeekInfo(n.timestamp).key.toString() === selWeek);
-            const allGroups = filteredByWeek.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
-            
-            const availableDates = Object.keys(allGroups);
-            const displayGroups = selDate ? { [selDate]: allGroups[selDate] } : allGroups;
+            // คำนวณสัปดาห์และตัวกรองที่จะนำมาแสดง
+            let displayGroups = {};
+            let availableDates = [];
+            let hasMoreWeeks = false;
+
+            if (searchQuery.trim()) {
+                const searched = news.filter(n => n.content && n.content.toLowerCase().includes(searchQuery.toLowerCase()));
+                displayGroups = searched.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
+            } else if (calendarDate) {
+                const [y, m, d] = calendarDate.split('-');
+                const targetDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+                const targetDateString = targetDate.toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+                const calFiltered = news.filter(n => n.dateString === targetDateString);
+                displayGroups = calFiltered.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
+            } else {
+                const selectedIndex = sortedKeys.findIndex(k => k.toString() === selWeek);
+                const visibleWeekKeys = selectedIndex !== -1 
+                    ? sortedKeys.slice(selectedIndex, selectedIndex + 1 + extraWeeks).map(k => k.toString())
+                    : [selWeek];
+                hasMoreWeeks = selectedIndex !== -1 && selectedIndex + 1 + extraWeeks < sortedKeys.length;
+
+                const filteredByWeek = news.filter(n => visibleWeekKeys.includes(getWeekInfo(n.timestamp).key.toString()));
+                const allGroups = filteredByWeek.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
+                
+                availableDates = Object.keys(allGroups);
+                displayGroups = selDate ? { [selDate]: allGroups[selDate] } : allGroups;
+            }
 
             return (
                 <div className="space-y-8">
                     {/* Filter Section */}
-                    <div className="bg-white p-4 md:p-5 rounded-3xl shadow-sm border border-gray-100">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div className="flex items-center gap-2.5 font-bold text-gray-600">
-                                <Icon name="calendar-days" className="text-blue-500" size={20} />
-                                <span className="whitespace-nowrap">ตัวกรองข่าว:</span>
+                    <div className="bg-white p-4 md:p-5 rounded-3xl shadow-sm border border-gray-100 flex flex-col gap-4">
+                        <div className="flex items-center gap-2.5 font-bold text-gray-600">
+                            <Icon name="search" className="text-blue-500" size={20} />
+                            <span className="whitespace-nowrap">ค้นหาและตัวกรอง:</span>
+                        </div>
+                        
+                        <div className="flex flex-col md:flex-row gap-3 w-full">
+                            <div className="relative w-full md:w-1/3">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><Icon name="search" size={16} /></div>
+                                <input 
+                                    type="text" 
+                                    placeholder="ค้นหาข้อความข่าว..." 
+                                    value={searchQuery}
+                                    onChange={(e) => { setSearchQuery(e.target.value); setCalendarDate(''); }}
+                                    className="w-full bg-gray-50 pl-10 pr-10 py-3 rounded-xl font-bold text-gray-700 outline-none border border-gray-200 focus:border-blue-400 text-sm"
+                                />
+                                {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute inset-y-0 right-0 pr-3 text-gray-400 hover:text-gray-600"><Icon name="x" size={16} /></button>}
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-grow justify-end">
-                                <div className="relative w-full sm:w-64">
-                                    <select value={selWeek} onChange={e => setSelWeek(e.target.value)} className="w-full bg-gray-50 p-3 pl-4 pr-10 rounded-xl font-bold text-gray-700 outline-none border border-gray-200 hover:border-blue-300 transition-colors appearance-none cursor-pointer text-sm">
-                                        {sortedKeys.map((k, i) => <option key={k} value={k.toString()}>{i === 0 ? `สัปดาห์ล่าสุด (${weeks.get(k)})` : weeks.get(k)}</option>)}
-                                    </select>
-                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                        <Icon name="chevron-down" size={18} />
-                                    </div>
+                            
+                            {/* ปรับปรุง: แก้ช่องปฏิทินให้แสดงรูปแบบ วัน เดือน ปี (พ.ศ.) แบบไทย และบังคับเปิดปฏิทินเมื่อคลิก */}
+                            <div className="relative w-full md:w-1/4">
+                                <div className={`w-full bg-gray-50 py-3 pl-4 pr-10 rounded-xl font-bold text-sm border border-gray-200 transition-colors flex items-center h-full ${calendarDate ? 'text-gray-700' : 'text-gray-400'}`}>
+                                    {calendarDate ? (() => {
+                                        const [y, m, d] = calendarDate.split('-');
+                                        const dateObj = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+                                        return dateObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+                                    })() : "ระบุวันที่..."}
                                 </div>
-                                {availableDates.length > 0 && (
-                                    <div className="relative w-full sm:w-56">
-                                        <select value={selDate} onChange={e => setSelDate(e.target.value)} className="w-full bg-gray-50 p-3 pl-4 pr-10 rounded-xl font-bold text-gray-700 outline-none border border-gray-200 hover:border-blue-300 transition-colors appearance-none cursor-pointer text-sm">
-                                            <option value="">ดูทุกวันในสัปดาห์</option>
-                                            {availableDates.map(d => <option key={d} value={d}>{d}</option>)}
-                                        </select>
-                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                            <Icon name="calendar" size={16} />
-                                        </div>
+                                <input 
+                                    type="date" 
+                                    value={calendarDate}
+                                    onChange={(e) => { setCalendarDate(e.target.value); setSearchQuery(''); }}
+                                    onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                    lang="th-TH"
+                                />
+                                {calendarDate ? (
+                                    <button onClick={() => setCalendarDate('')} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 z-20">
+                                        <Icon name="x" size={16} />
+                                    </button>
+                                ) : (
+                                    <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none text-gray-400 z-0">
+                                        <Icon name="calendar" size={16} />
                                     </div>
                                 )}
                             </div>
+
+                            <div className="relative w-full md:w-auto flex-grow">
+                                <select value={selWeek} onChange={e => { setSelWeek(e.target.value); setSelDate(''); setExtraWeeks(0); }} disabled={!!searchQuery || !!calendarDate} className="w-full bg-gray-50 p-3 pl-4 pr-10 rounded-xl font-bold text-gray-700 outline-none border border-gray-200 focus:border-blue-400 text-sm appearance-none disabled:opacity-50">
+                                    {sortedKeys.map((k, i) => <option key={k} value={k.toString()}>{i === 0 ? `สัปดาห์ล่าสุด (${weeks.get(k)})` : weeks.get(k)}</option>)}
+                                </select>
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400"><Icon name="chevron-down" size={18} /></div>
+                            </div>
+
+                            {availableDates.length > 0 && !searchQuery && !calendarDate && (
+                                <div className="relative w-full md:w-auto flex-grow">
+                                    <select value={selDate} onChange={e => setSelDate(e.target.value)} className="w-full bg-gray-50 p-3 pl-4 pr-10 rounded-xl font-bold text-gray-700 outline-none border border-gray-200 focus:border-blue-400 text-sm appearance-none">
+                                        <option value="">ดูทุกวันในสัปดาห์</option>
+                                        {availableDates.map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400"><Icon name="calendar" size={16} /></div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {/* News Feed */}
-                    {Object.keys(displayGroups).map(date => (
-                        <div key={date} className="space-y-6 fade-in">
-                            <div className="flex items-center gap-4">
-                                <h2 className="flex items-center gap-2.5 font-bold text-gray-700 bg-white px-5 py-2.5 rounded-full shadow-sm border border-gray-100 text-sm tracking-wide">
-                                    <Icon name="calendar" className="text-blue-500" size={16} /> {date}
-                                </h2>
-                                <div className="h-px bg-gray-200 flex-grow"></div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {displayGroups[date].map(item => <NewsCard key={item.id} item={item} onEdit={onEdit} db={db} appId={appId} />)}
-                            </div>
+                    {Object.keys(displayGroups).length === 0 ? (
+                        <div className="text-center py-10 bg-white rounded-3xl border border-gray-100 shadow-sm mt-4">
+                            <p className="text-gray-500 font-medium text-sm">ไม่พบข่าวที่ตรงกับเงื่อนไข</p>
                         </div>
-                    ))}
+                    ) : (
+                        Object.keys(displayGroups).map(date => (
+                            <div key={date} className="space-y-6 fade-in">
+                                <div className="flex items-center gap-4">
+                                    <h2 className="flex items-center gap-2.5 font-bold text-gray-700 bg-white px-5 py-2.5 rounded-full shadow-sm border border-gray-100 text-sm tracking-wide">
+                                        <Icon name="calendar" className="text-blue-500" size={16} /> {date}
+                                    </h2>
+                                    <div className="h-px bg-gray-200 flex-grow"></div>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {displayGroups[date].map(item => <NewsCard key={item.id} item={item} onEdit={onEdit} db={db} appId={appId} />)}
+                                </div>
+                            </div>
+                        ))
+                    )}
+
+                    {/* ปุ่มโหลดข่าวสัปดาห์ก่อนหน้า */}
+                    {hasMoreWeeks && !searchQuery && !calendarDate && (
+                        <div className="pt-4 pb-8 flex justify-center fade-in">
+                            <button 
+                                onClick={() => { setExtraWeeks(prev => prev + 1); setSelDate(''); }}
+                                className="bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-200 px-8 py-3.5 rounded-full font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm"
+                            >
+                                <Icon name="history" size={18} />
+                                ข่าวเพิ่มเติมสัปดาห์ที่แล้ว
+                            </button>
+                        </div>
+                    )}
                 </div>
             );
         };
