@@ -70,7 +70,7 @@
         const appId = 'daily-news-app';
 
         const THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-        const IOS_DATE_X_DEFAULT_OFFSET = -40;
+        const IOS_DATE_X_DEFAULT_OFFSET = -145;
         const DATE_X_STEP = 1;
         const isIOSMobile = () => {
             if (typeof navigator === 'undefined') return false;
@@ -446,7 +446,7 @@
                                                         <Icon name="arrow-left" size={16} /> ซ้าย
                                                     </button>
                                                     <button type="button" onClick={() => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET)} className="py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs">
-                                                        ค่า iOS -20
+                                                        ค่า iOS -145
                                                     </button>
                                                     <button type="button" onClick={() => setDateXOffset(prev => prev + DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
                                                         ขวา <Icon name="arrow-right" size={16} />
@@ -843,7 +843,7 @@
                                                             <Icon name="arrow-left" size={16} /> ซ้าย
                                                         </button>
                                                         <button type="button" onClick={() => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET)} className="py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs">
-                                                            ค่า iOS -20
+                                                            ค่า iOS -145
                                                         </button>
                                                         <button type="button" onClick={() => setDateXOffset(prev => prev + DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
                                                             ขวา <Icon name="arrow-right" size={16} />
