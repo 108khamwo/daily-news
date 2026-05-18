@@ -48,7 +48,7 @@
         // --- Firebase Modules ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCTDyqdyIzXnH6GUSZ-c2oj4uf9YRvVzho",
@@ -121,16 +121,25 @@
             });
         };
 
-        const getWeekInfo = (timestamp) => {
+        const getWeekStartDate = (timestamp = Date.now()) => {
             const d = new Date(timestamp);
             const day = d.getDay() === 0 ? 7 : d.getDay();
-            const start = new Date(d); start.setDate(d.getDate() - day + 1); start.setHours(0,0,0,0);
+            const start = new Date(d);
+            start.setDate(d.getDate() - day + 1);
+            start.setHours(0,0,0,0);
+            return start;
+        };
+
+        const getWeekInfo = (timestamp) => {
+            const start = getWeekStartDate(timestamp);
             const end = new Date(start); end.setDate(start.getDate() + 6);
             return { 
                 key: start.getTime(), 
                 label: `${start.toLocaleDateString('th-TH', {day:'numeric', month:'short'})} - ${end.toLocaleDateString('th-TH', {day:'numeric', month:'short', year:'numeric'})}` 
             };
         };
+
+        const MAX_PREVIOUS_WEEKS = 8; // ครอบคลุมช่วงเก็บข่าวประมาณ 60 วัน โดยโหลดเพิ่มทีละสัปดาห์
 
         // --- Main App ---
         const App = () => {
@@ -140,6 +149,8 @@
             const [view, setView] = useState('dashboard');
             const [loading, setLoading] = useState(true);
             const [dataLoading, setDataLoading] = useState(true); 
+            const [olderNewsLoading, setOlderNewsLoading] = useState(false);
+            const [loadedPreviousWeeks, setLoadedPreviousWeeks] = useState(0);
             const [editingItem, setEditingItem] = useState(null);
 
             useEffect(() => {
@@ -153,17 +164,43 @@
 
             useEffect(() => {
                 if (!user) return;
-                const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'news'), (snap) => {
+
+                const currentWeekStart = getWeekStartDate();
+                const currentWeekEnd = new Date(currentWeekStart);
+                currentWeekEnd.setDate(currentWeekStart.getDate() + 7);
+
+                const queryStart = new Date(currentWeekStart);
+                queryStart.setDate(currentWeekStart.getDate() - (loadedPreviousWeeks * 7));
+
+                if (loadedPreviousWeeks > 0) setOlderNewsLoading(true);
+
+                const newsQuery = query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'news'),
+                    where('timestamp', '>=', queryStart.getTime()),
+                    where('timestamp', '<', currentWeekEnd.getTime()),
+                    orderBy('timestamp', 'desc')
+                );
+
+                const unsub = onSnapshot(newsQuery, (snap) => {
                     const data = [];
                     snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-                    setNews(data.sort((a,b) => b.timestamp - a.timestamp));
-                    setDataLoading(false); 
+                    setNews(data);
+                    setDataLoading(false);
+                    setOlderNewsLoading(false);
                     
                     const limit = Date.now() - (60 * 24 * 60 * 60 * 1000);
                     data.forEach(item => { if(item.timestamp < limit) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'news', item.id)); });
+                }, (err) => {
+                    console.error('โหลดข่าวไม่สำเร็จ', err);
+                    setDataLoading(false);
+                    setOlderNewsLoading(false);
                 });
                 return () => unsub();
-            }, [user]);
+            }, [user, loadedPreviousWeeks]);
+
+            const loadMoreWeeks = () => {
+                setLoadedPreviousWeeks(prev => Math.min(prev + 1, MAX_PREVIOUS_WEEKS));
+            };
 
             if (loading || dataLoading) return (
                 <div className="h-screen flex flex-col items-center justify-center space-y-6">
@@ -218,7 +255,7 @@
                     {/* Main Content */}
                     <main className="max-w-6xl mx-auto px-4 md:px-6 mt-8">
                         {view === 'dashboard' ? (
-                            <Dashboard news={news} onEdit={(item) => { setEditingItem(item); setView('admin'); }} />
+                            <Dashboard news={news} onEdit={(item) => { setEditingItem(item); setView('admin'); }} onLoadMoreWeeks={loadMoreWeeks} canLoadMoreWeeks={loadedPreviousWeeks < MAX_PREVIOUS_WEEKS} olderNewsLoading={olderNewsLoading} />
                         ) : view === 'standalone-editor' ? (
                             <StandaloneEditor />
                         ) : (
@@ -436,7 +473,7 @@
         };
 
         // --- Dashboard View ---
-        const Dashboard = ({ news, onEdit }) => {
+        const Dashboard = ({ news, onEdit, onLoadMoreWeeks, canLoadMoreWeeks, olderNewsLoading }) => {
             const [selWeek, setSelWeek] = useState('');
             const [selDate, setSelDate] = useState('');
             const [extraWeeks, setExtraWeeks] = useState(0);
@@ -464,8 +501,18 @@
                     <div className="bg-gray-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-300">
                         <Icon name="inbox" size={40} />
                     </div>
-                    <h2 className="text-lg font-semibold text-gray-700">ยังไม่มีข่าวในระบบ</h2>
-                    <p className="text-gray-500 mt-2 text-sm">กดปุ่มเพิ่มข่าวใหม่ด้านบน เพื่อเริ่มต้นโพสต์ข่าวสาร</p>
+                    <h2 className="text-lg font-semibold text-gray-700">ยังไม่มีข่าวในสัปดาห์ที่โหลด</h2>
+                    <p className="text-gray-500 mt-2 text-sm">เริ่มต้นระบบจะโหลดเฉพาะสัปดาห์ปัจจุบันก่อน เพื่อลดปริมาณข้อมูลที่ดึงจาก Firestore</p>
+                    {canLoadMoreWeeks && (
+                        <button
+                            onClick={onLoadMoreWeeks}
+                            disabled={olderNewsLoading}
+                            className="mt-6 bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-200 disabled:opacity-60 px-8 py-3.5 rounded-full font-bold shadow-sm transition-all active:scale-95 inline-flex items-center gap-2 text-sm"
+                        >
+                            <Icon name={olderNewsLoading ? "loader" : "history"} size={18} className={olderNewsLoading ? "animate-spin" : ""} />
+                            {olderNewsLoading ? 'กำลังโหลดข่าวเก่า...' : 'ข่าวเพิ่มเติมสัปดาห์ก่อนหน้า'}
+                        </button>
+                    )}
                 </div>
             );
 
@@ -488,7 +535,7 @@
                 const visibleWeekKeys = selectedIndex !== -1 
                     ? sortedKeys.slice(selectedIndex, selectedIndex + 1 + extraWeeks).map(k => k.toString())
                     : [selWeek];
-                hasMoreWeeks = selectedIndex !== -1 && selectedIndex + 1 + extraWeeks < sortedKeys.length;
+                hasMoreWeeks = canLoadMoreWeeks;
 
                 const filteredByWeek = news.filter(n => visibleWeekKeys.includes(getWeekInfo(n.timestamp).key.toString()));
                 const allGroups = filteredByWeek.reduce((acc, n) => { (acc[n.dateString] = acc[n.dateString] || []).push(n); return acc; }, {});
@@ -592,11 +639,12 @@
                     {hasMoreWeeks && !searchQuery && !calendarDate && (
                         <div className="pt-4 pb-8 flex justify-center fade-in">
                             <button 
-                                onClick={() => { setExtraWeeks(prev => prev + 1); setSelDate(''); }}
-                                className="bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-200 px-8 py-3.5 rounded-full font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm"
+                                onClick={() => { setExtraWeeks(prev => prev + 1); setSelDate(''); onLoadMoreWeeks(); }}
+                                disabled={olderNewsLoading}
+                                className="bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-200 disabled:opacity-60 px-8 py-3.5 rounded-full font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm"
                             >
-                                <Icon name="history" size={18} />
-                                ข่าวเพิ่มเติมสัปดาห์ที่แล้ว
+                                <Icon name={olderNewsLoading ? "loader" : "history"} size={18} className={olderNewsLoading ? "animate-spin" : ""} />
+                                {olderNewsLoading ? 'กำลังโหลดข่าวเก่า...' : 'ข่าวเพิ่มเติมสัปดาห์ก่อนหน้า'}
                             </button>
                         </div>
                     )}
