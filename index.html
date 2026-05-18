@@ -70,6 +70,16 @@
         const appId = 'daily-news-app';
 
         const THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const IOS_DATE_X_DEFAULT_OFFSET = -20;
+        const DATE_X_STEP = 1;
+        const isIOSMobile = () => {
+            if (typeof navigator === 'undefined') return false;
+            const ua = navigator.userAgent || '';
+            const platform = navigator.platform || '';
+            const isIPhoneOrIPod = /iPhone|iPod/i.test(ua);
+            const isIPadOS = /iPad/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            return isIPhoneOrIPod || isIPadOS;
+        };
 
         // --- Icon Component ---
         const Icon = ({ name, size = 20, className = "" }) => {
@@ -277,6 +287,8 @@
             const [rectY, setRectY] = useState(923); 
             const [rectHeight, setRectHeight] = useState(40);
             const [fontSize, setFontSize] = useState(31);
+            const isIOSMobileDevice = isIOSMobile();
+            const [dateXOffset, setDateXOffset] = useState(() => isIOSMobileDevice ? IOS_DATE_X_DEFAULT_OFFSET : 0);
 
             const handleImageUpload = (e) => {
                 const file = e.target.files[0];
@@ -319,7 +331,8 @@
                 
                 const dateText = `-${day} ${THAI_MONTHS[month]} ${year}-`;
                 
-                ctx.translate(image.width / 2, rectY);
+                const dateX = image.width / 2 + (isIOSMobileDevice ? dateXOffset : 0);
+                ctx.translate(dateX, rectY);
                 ctx.scale(1, 1.15); 
                 ctx.fillText(dateText, 0, 0);
                 ctx.restore();
@@ -332,7 +345,7 @@
                         return () => clearTimeout(timer);
                     });
                 }
-            }, [image, day, month, year, rectY, rectHeight, fontSize]);
+            }, [image, day, month, year, rectY, rectHeight, fontSize, dateXOffset]);
 
             const downloadImage = () => {
                 if (!canvasRef.current) return;
@@ -422,6 +435,26 @@
                                         3. ปรับแต่งตำแหน่ง
                                     </h3>
                                     <div className="space-y-4">
+                                        {isIOSMobileDevice && (
+                                            <div>
+                                                <div className="flex justify-between items-end mb-2">
+                                                    <label className="text-xs font-bold text-gray-500">ตำแหน่งแนวนอน iOS (X)</label>
+                                                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded">{dateXOffset}</span>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <button type="button" onClick={() => setDateXOffset(prev => prev - DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
+                                                        <Icon name="arrow-left" size={16} /> ซ้าย
+                                                    </button>
+                                                    <button type="button" onClick={() => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET)} className="py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs">
+                                                        ค่า iOS -20
+                                                    </button>
+                                                    <button type="button" onClick={() => setDateXOffset(prev => prev + DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
+                                                        ขวา <Icon name="arrow-right" size={16} />
+                                                    </button>
+                                                </div>
+                                                <p className="text-[10px] text-gray-400 mt-2">แสดงเฉพาะบน iPhone/iPad เพื่อชดเชยตำแหน่งวันที่บน iOS เท่านั้น</p>
+                                            </div>
+                                        )}
                                         <div>
                                             <div className="flex justify-between items-end mb-1">
                                                 <label className="text-xs font-bold text-gray-500">ตำแหน่งแนวตั้ง (Y)</label>
@@ -664,6 +697,8 @@
             const [rectY, setRectY] = useState(923); 
             const [rectHeight, setRectHeight] = useState(40);
             const [fontSize, setFontSize] = useState(31);
+            const isIOSMobileDevice = isIOSMobile();
+            const [dateXOffset, setDateXOffset] = useState(() => isIOSMobileDevice ? IOS_DATE_X_DEFAULT_OFFSET : 0);
             
             const [showSettings, setShowSettings] = useState(false);
 
@@ -701,7 +736,8 @@
                 
                 const dateText = `-${day} ${THAI_MONTHS[month]} ${year}-`;
                 
-                ctx.translate(image.width / 2, rectY);
+                const dateX = image.width / 2 + (isIOSMobileDevice ? dateXOffset : 0);
+                ctx.translate(dateX, rectY);
                 ctx.scale(1, 1.15); 
                 ctx.fillText(dateText, 0, 0);
                 ctx.restore();
@@ -714,7 +750,7 @@
                         return () => clearTimeout(timer);
                     });
                 }
-            }, [image, day, month, year, rectY, rectHeight, fontSize]);
+            }, [image, day, month, year, rectY, rectHeight, fontSize, dateXOffset]);
 
             const handleConfirm = () => {
                 if (!canvasRef.current) return;
@@ -796,6 +832,26 @@
                                             ปรับแต่งตำแหน่งและขนาด
                                         </h3>
                                         <div className="space-y-4">
+                                            {isIOSMobileDevice && (
+                                                <div>
+                                                    <div className="flex justify-between items-end mb-2">
+                                                        <label className="text-xs font-bold text-gray-500">ตำแหน่งแนวนอน iOS (X)</label>
+                                                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded">{dateXOffset}</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        <button type="button" onClick={() => setDateXOffset(prev => prev - DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
+                                                            <Icon name="arrow-left" size={16} /> ซ้าย
+                                                        </button>
+                                                        <button type="button" onClick={() => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET)} className="py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs">
+                                                            ค่า iOS -20
+                                                        </button>
+                                                        <button type="button" onClick={() => setDateXOffset(prev => prev + DATE_X_STEP)} className="py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1">
+                                                            ขวา <Icon name="arrow-right" size={16} />
+                                                        </button>
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-400 mt-2">แสดงเฉพาะบน iPhone/iPad เพื่อชดเชยตำแหน่งวันที่บน iOS เท่านั้น</p>
+                                                </div>
+                                            )}
                                             <div>
                                                 <div className="flex justify-between items-end mb-1">
                                                     <label className="text-xs font-bold text-gray-500">ตำแหน่งแนวตั้ง (Y)</label>
