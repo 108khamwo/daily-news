@@ -48,7 +48,7 @@
         // --- Firebase Modules ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCTDyqdyIzXnH6GUSZ-c2oj4uf9YRvVzho",
@@ -63,9 +63,8 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         
-        const db = initializeFirestore(app, {
-            localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-        });
+        // ใช้ getFirestore แบบมาตรฐานเพื่อแก้ปัญหาโหลดค้างบน iOS
+        const db = getFirestore(app);
         
         const appId = 'daily-news-app';
 
@@ -274,7 +273,6 @@
             const canvasRef = useRef(null);
             const [image, setImage] = useState(null);
             
-            // เพิ่ม State ควบคุมการแสดงวันที่
             const [showDate, setShowDate] = useState(true);
 
             const [day, setDay] = useState(() => new Date().getDate());
@@ -288,7 +286,6 @@
             const [dateXOffset, setDateXOffset] = useState(() => isIOSMobileDevice ? IOS_DATE_X_DEFAULT_OFFSET : 0);
             const [showSettings, setShowSettings] = useState(false);
 
-            // ป้องกัน Error จาก localStorage
             const [useFrame, setUseFrame] = useState(() => {
                 try {
                     return localStorage.getItem('news_useFrame') === 'true';
@@ -342,7 +339,6 @@
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
 
-                // ควบคุมการวาดแถบวันที่
                 if (showDate) {
                     const boxWidth = image.width * 0.6; 
                     const boxX = (image.width - boxWidth) / 2;
@@ -539,7 +535,7 @@
                                         </div>
                                     </div>
                                 )}
-
+                                
                                 <button onClick={downloadImage} disabled={!image} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 transition-all flex items-center justify-center gap-2 active:scale-[0.98]">
                                     <Icon name="download" size={20} />
                                     ดาวน์โหลดรูปภาพ
