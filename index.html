@@ -288,7 +288,20 @@
 
             // เพิ่ม State สำหรับฟีเจอร์ปรับลดโทนสี
             const [isMourningMode, setIsMourningMode] = useState(false);
-            const [mourningIntensity, setMourningIntensity] = useState(40);
+            const [mourningIntensity, setMourningIntensity] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('news_mourningIntensity');
+                    return saved !== null ? parseInt(saved) : 40;
+                } catch(e) {
+                    return 40;
+                }
+            });
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem('news_mourningIntensity', mourningIntensity);
+                } catch(e) {}
+            }, [mourningIntensity]);
 
             const [useFrame, setUseFrame] = useState(() => {
                 try {
@@ -341,9 +354,14 @@
                 // วาดรูปภาพหลัก พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
                 ctx.save();
                 if (isMourningMode) {
-                    ctx.filter = `grayscale(${mourningIntensity}%)`;
+                    // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
+                    const brightness = 100 + (mourningIntensity * 0.15); // เพิ่มความสว่างขึ้นนิดหน่อย
+                    const contrast = 100 - (mourningIntensity * 0.1);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
+                    ctx.filter = `grayscale(${mourningIntensity}%) brightness(${brightness}%) contrast(${contrast}%)`;
+                    ctx.drawImage(image, 0, 0);
+                } else {
+                    ctx.drawImage(image, 0, 0);
                 }
-                ctx.drawImage(image, 0, 0);
                 ctx.restore();
 
                 if (useFrame && frameImage) {
@@ -507,7 +525,7 @@
                                     {isMourningMode && (
                                         <div className="animate-fade-in pt-2">
                                             <div className="flex justify-between items-end mb-1">
-                                                <label className="text-xs font-bold text-gray-500">ระดับความซีด (Grayscale)</label>
+                                                <label className="text-xs font-bold text-gray-500">ระดับการลดสี (Grayscale)</label>
                                                 <span className="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{mourningIntensity}%</span>
                                             </div>
                                             <input type="range" min="0" max="100" value={mourningIntensity} onChange={(e) => setMourningIntensity(parseInt(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-gray-600" />
@@ -795,7 +813,20 @@
 
             // เพิ่ม State สำหรับฟีเจอร์ปรับลดโทนสี
             const [isMourningMode, setIsMourningMode] = useState(false);
-            const [mourningIntensity, setMourningIntensity] = useState(80);
+            const [mourningIntensity, setMourningIntensity] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('news_mourningIntensity');
+                    return saved !== null ? parseInt(saved) : 40;
+                } catch(e) {
+                    return 40;
+                }
+            });
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem('news_mourningIntensity', mourningIntensity);
+                } catch(e) {}
+            }, [mourningIntensity]);
 
             const [useFrame, setUseFrame] = useState(() => {
                 try {
@@ -840,9 +871,14 @@
                 // วาดรูปภาพหลัก พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
                 ctx.save();
                 if (isMourningMode) {
-                    ctx.filter = `grayscale(${mourningIntensity}%)`;
+                    // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
+                    const brightness = 100 + (mourningIntensity * 0.15); // เพิ่มความสว่างขึ้นนิดหน่อย
+                    const contrast = 100 - (mourningIntensity * 0.1);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
+                    ctx.filter = `grayscale(${mourningIntensity}%) brightness(${brightness}%) contrast(${contrast}%)`;
+                    ctx.drawImage(image, 0, 0);
+                } else {
+                    ctx.drawImage(image, 0, 0);
                 }
-                ctx.drawImage(image, 0, 0);
                 ctx.restore();
 
                 if (useFrame && frameImage) {
@@ -992,7 +1028,7 @@
                                     {isMourningMode && (
                                         <div className="animate-fade-in pt-2">
                                             <div className="flex justify-between items-end mb-1">
-                                                <label className="text-xs font-bold text-gray-500">ระดับความซีด (Grayscale)</label>
+                                                <label className="text-xs font-bold text-gray-500">ระดับการลดสี (Grayscale)</label>
                                                 <span className="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{mourningIntensity}%</span>
                                             </div>
                                             <input type="range" min="0" max="100" value={mourningIntensity} onChange={(e) => setMourningIntensity(parseInt(e.target.value))} className="w-full h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-gray-600" />
@@ -1148,19 +1184,8 @@
             };
 
             const handleImageActionClick = (actionType) => {
-                const today = new Date();
-                const newsDate = new Date(item.timestamp);
-                
-                const isToday = today.getDate() === newsDate.getDate() && 
-                                today.getMonth() === newsDate.getMonth() && 
-                                today.getFullYear() === newsDate.getFullYear();
-                                
-                if (isToday) {
-                    if (actionType === 'copy') executeCopyImageFallback();
-                    if (actionType === 'download') executeDownload();
-                } else {
-                    setImageActionPrompt(actionType);
-                }
+                // เปลี่ยนให้แสดงกล่องถามทุกครั้ง ไม่ว่าจะวันไหน
+                setImageActionPrompt(actionType);
             };
 
             const executeImageAction = async (wantsToEdit) => {
@@ -1281,7 +1306,7 @@
                                         <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
                                             <Icon name="calendar-edit" size={20} />
                                         </div>
-                                        <h3 className="text-base font-bold text-gray-800 mb-1">ต้องการแก้ไขวันที่หรือไม่?</h3>
+                                        <h3 className="text-base font-bold text-gray-800 mb-1">ต้องการแก้ไขวันที่-กรอบ-สี หรือไม่?</h3>
                                         <p className="text-xs text-gray-500 mb-4">ระบบจะเข้าสู่หน้าต่างสำหรับแก้ไขและตกแต่งปก</p>
                                         <div className="flex flex-col gap-2">
                                             <button onClick={() => executeImageAction(true)} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-md hover:bg-blue-700 active:scale-[0.98] transition">ต้องการ</button>
