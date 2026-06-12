@@ -414,7 +414,17 @@
                     const boxWidth = image.width * 0.6; 
                     const boxX = (image.width - boxWidth) / 2;
                     
-                    ctx.fillStyle = 'black';
+                    let bgFill = 'black';
+                    if (isMourningMode) {
+                        const intensity = mourningIntensity / 100;
+                        const brightnessOffset = intensity * 38.25;
+                        const contrastFactor = 1 - (intensity * 0.1);
+                        let val = Math.round(((brightnessOffset - 128) * contrastFactor) + 128);
+                        val = Math.max(0, Math.min(255, val));
+                        bgFill = `rgb(${val}, ${val}, ${val})`;
+                    }
+                    
+                    ctx.fillStyle = bgFill;
                     ctx.fillRect(boxX, rectY - (rectHeight / 2), boxWidth, rectHeight);
 
                     ctx.save();
@@ -973,7 +983,17 @@
                     const boxWidth = image.width * 0.6; 
                     const boxX = (image.width - boxWidth) / 2;
                     
-                    ctx.fillStyle = 'black';
+                    let bgFill = 'black';
+                    if (isMourningMode) {
+                        const intensity = mourningIntensity / 100;
+                        const brightnessOffset = intensity * 38.25;
+                        const contrastFactor = 1 - (intensity * 0.1);
+                        let val = Math.round(((brightnessOffset - 128) * contrastFactor) + 128);
+                        val = Math.max(0, Math.min(255, val));
+                        bgFill = `rgb(${val}, ${val}, ${val})`;
+                    }
+                    
+                    ctx.fillStyle = bgFill;
                     ctx.fillRect(boxX, rectY - (rectHeight / 2), boxWidth, rectHeight);
 
                     ctx.save();
