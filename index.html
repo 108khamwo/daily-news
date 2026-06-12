@@ -291,9 +291,9 @@
             const [mourningIntensity, setMourningIntensity] = useState(() => {
                 try {
                     const saved = localStorage.getItem('news_mourningIntensity');
-                    return saved !== null ? parseInt(saved) : 40;
+                    return saved !== null ? parseInt(saved) : 50;
                 } catch(e) {
-                    return 40;
+                    return 50;
                 }
             });
 
@@ -351,22 +351,23 @@
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                // วาดรูปภาพหลัก พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
+                // วาดรูปภาพหลักและกรอบ พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
                 ctx.save();
                 if (isMourningMode) {
                     // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
-                    const brightness = 100 + (mourningIntensity * 0.15); // เพิ่มความสว่างขึ้นนิดหน่อย
-                    const contrast = 100 - (mourningIntensity * 0.1);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
-                    ctx.filter = `grayscale(${mourningIntensity}%) brightness(${brightness}%) contrast(${contrast}%)`;
-                    ctx.drawImage(image, 0, 0);
-                } else {
-                    ctx.drawImage(image, 0, 0);
+                    // แก้ไขเป็นค่าทศนิยม (Decimal) เพื่อแก้ปัญหา ctx.filter ไม่ทำงานใน iOS Safari
+                    const brightness = 1 + (mourningIntensity * 0.0015); // เพิ่มความสว่างขึ้นนิดหน่อย
+                    const contrast = 1 - (mourningIntensity * 0.001);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
+                    ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
                 }
-                ctx.restore();
+                
+                ctx.drawImage(image, 0, 0);
 
                 if (useFrame && frameImage) {
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
+                
+                ctx.restore();
 
                 if (showDate) {
                     const boxWidth = image.width * 0.6; 
@@ -816,9 +817,9 @@
             const [mourningIntensity, setMourningIntensity] = useState(() => {
                 try {
                     const saved = localStorage.getItem('news_mourningIntensity');
-                    return saved !== null ? parseInt(saved) : 40;
+                    return saved !== null ? parseInt(saved) : 50;
                 } catch(e) {
-                    return 40;
+                    return 50;
                 }
             });
 
@@ -868,22 +869,23 @@
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                // วาดรูปภาพหลัก พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
+                // วาดรูปภาพหลักและกรอบ พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
                 ctx.save();
                 if (isMourningMode) {
                     // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
-                    const brightness = 100 + (mourningIntensity * 0.15); // เพิ่มความสว่างขึ้นนิดหน่อย
-                    const contrast = 100 - (mourningIntensity * 0.1);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
-                    ctx.filter = `grayscale(${mourningIntensity}%) brightness(${brightness}%) contrast(${contrast}%)`;
-                    ctx.drawImage(image, 0, 0);
-                } else {
-                    ctx.drawImage(image, 0, 0);
+                    // แก้ไขเป็นค่าทศนิยม (Decimal) เพื่อแก้ปัญหา ctx.filter ไม่ทำงานใน iOS Safari
+                    const brightness = 1 + (mourningIntensity * 0.0015); // เพิ่มความสว่างขึ้นนิดหน่อย
+                    const contrast = 1 - (mourningIntensity * 0.001);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
+                    ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
                 }
-                ctx.restore();
+                
+                ctx.drawImage(image, 0, 0);
 
                 if (useFrame && frameImage) {
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
+                
+                ctx.restore();
 
                 if (showDate) {
                     const boxWidth = image.width * 0.6; 
