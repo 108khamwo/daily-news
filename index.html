@@ -343,7 +343,8 @@
             const drawCanvas = () => {
                 if (!image || !canvasRef.current) return;
                 const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
+                // เพิ่ม willReadFrequently เพื่อประสิทธิภาพบนระบบที่รองรับ
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
                 canvas.width = image.width;
                 canvas.height = image.height;
@@ -351,23 +352,63 @@
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                // วาดรูปภาพหลักและกรอบ พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
-                ctx.save();
-                if (isMourningMode) {
-                    // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
-                    // แก้ไขเป็นค่าทศนิยม (Decimal) เพื่อแก้ปัญหา ctx.filter ไม่ทำงานใน iOS Safari
-                    const brightness = 1 + (mourningIntensity * 0.0015); // เพิ่มความสว่างขึ้นนิดหน่อย
-                    const contrast = 1 - (mourningIntensity * 0.001);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
-                    ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
-                }
-                
+                // 1. วาดรูปภาพหลักและกรอบให้เสร็จก่อน
                 ctx.drawImage(image, 0, 0);
 
                 if (useFrame && frameImage) {
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
-                
-                ctx.restore();
+
+                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง (แก้บั๊ก iOS Safari ไม่รองรับ ctx.filter)
+                if (isMourningMode) {
+                    try {
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+                        const intensity = mourningIntensity / 100;
+                        
+                        // สูตรชดเชยความสว่างและคอนทราสต์
+                        const brightnessOffset = intensity * 38.25; 
+                        const contrastFactor = 1 - (intensity * 0.1);
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            let r = data[i];
+                            let g = data[i+1];
+                            let b = data[i+2];
+
+                            // Grayscale
+                            const luma = r * 0.299 + g * 0.587 + b * 0.114;
+                            r = r + (luma - r) * intensity;
+                            g = g + (luma - g) * intensity;
+                            b = b + (luma - b) * intensity;
+
+                            // Brightness
+                            r += brightnessOffset;
+                            g += brightnessOffset;
+                            b += brightnessOffset;
+
+                            // Contrast
+                            r = ((r - 128) * contrastFactor) + 128;
+                            g = ((g - 128) * contrastFactor) + 128;
+                            b = ((b - 128) * contrastFactor) + 128;
+
+                            data[i] = r;
+                            data[i+1] = g;
+                            data[i+2] = b;
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                    } catch (err) {
+                        // Fallback ฉุกเฉิน
+                        ctx.save();
+                        const brightness = 1 + (mourningIntensity * 0.0015);
+                        const contrast = 1 - (mourningIntensity * 0.001);
+                        ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
+                        ctx.drawImage(image, 0, 0);
+                        if (useFrame && frameImage) {
+                            ctx.drawImage(frameImage, 0, 0, image.width, image.height);
+                        }
+                        ctx.restore();
+                    }
+                }
 
                 if (showDate) {
                     const boxWidth = image.width * 0.6; 
@@ -861,7 +902,8 @@
             const drawCanvas = () => {
                 if (!image || !canvasRef.current) return;
                 const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
+                // เพิ่ม willReadFrequently เพื่อประสิทธิภาพบนระบบที่รองรับ
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
                 canvas.width = image.width;
                 canvas.height = image.height;
@@ -869,23 +911,63 @@
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
 
-                // วาดรูปภาพหลักและกรอบ พร้อมปรับโทนสี (ถ้าเปิดใช้งาน)
-                ctx.save();
-                if (isMourningMode) {
-                    // ปรับสูตรคำนวณ ชดเชยความสว่างและคอนทราสต์อัตโนมัติตาม % ความซีด เพื่อไม่ให้สี/ข้อความจม
-                    // แก้ไขเป็นค่าทศนิยม (Decimal) เพื่อแก้ปัญหา ctx.filter ไม่ทำงานใน iOS Safari
-                    const brightness = 1 + (mourningIntensity * 0.0015); // เพิ่มความสว่างขึ้นนิดหน่อย
-                    const contrast = 1 - (mourningIntensity * 0.001);    // ลดคอนทราสต์ลงนิดหน่อยไม่ให้ภาพแข็ง
-                    ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
-                }
-                
+                // 1. วาดรูปภาพหลักและกรอบให้เสร็จก่อน
                 ctx.drawImage(image, 0, 0);
 
                 if (useFrame && frameImage) {
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
-                
-                ctx.restore();
+
+                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง (แก้บั๊ก iOS Safari ไม่รองรับ ctx.filter)
+                if (isMourningMode) {
+                    try {
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+                        const intensity = mourningIntensity / 100;
+                        
+                        // สูตรชดเชยความสว่างและคอนทราสต์
+                        const brightnessOffset = intensity * 38.25; 
+                        const contrastFactor = 1 - (intensity * 0.1);
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            let r = data[i];
+                            let g = data[i+1];
+                            let b = data[i+2];
+
+                            // Grayscale
+                            const luma = r * 0.299 + g * 0.587 + b * 0.114;
+                            r = r + (luma - r) * intensity;
+                            g = g + (luma - g) * intensity;
+                            b = b + (luma - b) * intensity;
+
+                            // Brightness
+                            r += brightnessOffset;
+                            g += brightnessOffset;
+                            b += brightnessOffset;
+
+                            // Contrast
+                            r = ((r - 128) * contrastFactor) + 128;
+                            g = ((g - 128) * contrastFactor) + 128;
+                            b = ((b - 128) * contrastFactor) + 128;
+
+                            data[i] = r;
+                            data[i+1] = g;
+                            data[i+2] = b;
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                    } catch (err) {
+                        // Fallback ฉุกเฉิน
+                        ctx.save();
+                        const brightness = 1 + (mourningIntensity * 0.0015);
+                        const contrast = 1 - (mourningIntensity * 0.001);
+                        ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness}) contrast(${contrast})`;
+                        ctx.drawImage(image, 0, 0);
+                        if (useFrame && frameImage) {
+                            ctx.drawImage(frameImage, 0, 0, image.width, image.height);
+                        }
+                        ctx.restore();
+                    }
+                }
 
                 if (showDate) {
                     const boxWidth = image.width * 0.6; 
