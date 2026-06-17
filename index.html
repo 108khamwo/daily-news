@@ -8,13 +8,13 @@
     <!-- Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- ล็อกเวอร์ชั่น Babel เพื่อป้องกันปัญหาอัปเดตเวอร์ชั่นล่าสุดแล้วพัง -->
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- เพิ่มฟอนต์ Prompt เข้ามาเพื่อใช้งานใน Canvas Editor ตามคำสั่ง -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -26,13 +26,12 @@
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Custom Scrollbar for better look */
+        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         
-        /* ซ่อน Scrollbar ของแถบเมนูวันที่ให้ดูสวยงามบนมือถือ */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         
@@ -43,12 +42,13 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        const { useState, useEffect, useRef } = React;
-
-        // --- Firebase Modules ---
+        // --- 1. ต้องนำ Import ทั้งหมดขึ้นมาบรรทัดแรกสุดของ <script> เสมอ ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, query, where, orderBy, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // --- 2. จากนั้นค่อยประกาศตัวแปรอื่นๆ ได้ ---
+        const { useState, useEffect, useRef } = React;
 
         const firebaseConfig = {
             apiKey: "AIzaSyCTDyqdyIzXnH6GUSZ-c2oj4uf9YRvVzho",
@@ -62,8 +62,6 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        
-        // ใช้ getFirestore แบบมาตรฐานเพื่อแก้ปัญหาโหลดค้างบน iOS
         const db = getFirestore(app);
         
         const appId = 'daily-news-app';
@@ -361,7 +359,6 @@
             const drawCanvas = () => {
                 if (!image || !canvasRef.current) return;
                 const canvas = canvasRef.current;
-                // เพิ่ม willReadFrequently เพื่อประสิทธิภาพบนระบบที่รองรับ
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
                 canvas.width = image.width;
@@ -377,14 +374,13 @@
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
 
-                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง (แก้บั๊ก iOS Safari ไม่รองรับ ctx.filter)
+                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง
                 if (isMourningMode) {
                     try {
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
                         const intensity = mourningIntensity / 100;
                         
-                        // สูตรชดเชยความสว่าง (ใช้การคูณเพื่อรักษาสีดำสนิทไว้ ไม่ให้สว่างตาม)
                         const brightnessMult = 1 + (intensity * 0.15); 
 
                         for (let i = 0; i < data.length; i += 4) {
@@ -392,13 +388,11 @@
                             let g = data[i+1];
                             let b = data[i+2];
 
-                            // Grayscale
                             const luma = r * 0.299 + g * 0.587 + b * 0.114;
                             r = r + (luma - r) * intensity;
                             g = g + (luma - g) * intensity;
                             b = b + (luma - b) * intensity;
 
-                            // Brightness (Multiplier preserves true black)
                             r = r * brightnessMult;
                             g = g * brightnessMult;
                             b = b * brightnessMult;
@@ -409,7 +403,6 @@
                         }
                         ctx.putImageData(imageData, 0, 0);
                     } catch (err) {
-                        // Fallback ฉุกเฉิน
                         ctx.save();
                         const brightness = 1 + (mourningIntensity * 0.0015);
                         ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness})`;
@@ -425,7 +418,6 @@
                     const boxWidth = image.width * 0.6; 
                     const boxX = (image.width - boxWidth) / 2;
                     
-                    // กลับไปใช้สีดำสนิท เพราะสูตรคูณค่าสีดำ (0,0,0) จะไม่ถูกทำให้สว่างขึ้นแล้ว
                     ctx.fillStyle = 'black';
                     ctx.fillRect(boxX, rectY - (rectHeight / 2), boxWidth, rectHeight);
 
@@ -560,7 +552,6 @@
                                     </label>
                                 </div>
 
-                                {/* เพิ่ม UI ปรับลดโทนสีไว้อาลัย */}
                                 <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-200 transition-opacity ${!image ? 'opacity-50 pointer-events-none' : ''}`}>
                                     <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                                         <Icon name="palette" size={18} className="text-gray-500" />
@@ -914,7 +905,6 @@
             const drawCanvas = () => {
                 if (!image || !canvasRef.current) return;
                 const canvas = canvasRef.current;
-                // เพิ่ม willReadFrequently เพื่อประสิทธิภาพบนระบบที่รองรับ
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
                 canvas.width = image.width;
@@ -930,14 +920,13 @@
                     ctx.drawImage(frameImage, 0, 0, image.width, image.height);
                 }
 
-                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง (แก้บั๊ก iOS Safari ไม่รองรับ ctx.filter)
+                // 2. ปรับโทนสีด้วยการคำนวณพิกเซลโดยตรง
                 if (isMourningMode) {
                     try {
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
                         const intensity = mourningIntensity / 100;
                         
-                        // สูตรชดเชยความสว่าง (ใช้การคูณเพื่อรักษาสีดำสนิทไว้ ไม่ให้สว่างตาม)
                         const brightnessMult = 1 + (intensity * 0.15); 
 
                         for (let i = 0; i < data.length; i += 4) {
@@ -945,13 +934,11 @@
                             let g = data[i+1];
                             let b = data[i+2];
 
-                            // Grayscale
                             const luma = r * 0.299 + g * 0.587 + b * 0.114;
                             r = r + (luma - r) * intensity;
                             g = g + (luma - g) * intensity;
                             b = b + (luma - b) * intensity;
 
-                            // Brightness (Multiplier preserves true black)
                             r = r * brightnessMult;
                             g = g * brightnessMult;
                             b = b * brightnessMult;
@@ -962,7 +949,6 @@
                         }
                         ctx.putImageData(imageData, 0, 0);
                     } catch (err) {
-                        // Fallback ฉุกเฉิน
                         ctx.save();
                         const brightness = 1 + (mourningIntensity * 0.0015);
                         ctx.filter = `grayscale(${mourningIntensity / 100}) brightness(${brightness})`;
@@ -978,7 +964,6 @@
                     const boxWidth = image.width * 0.6; 
                     const boxX = (image.width - boxWidth) / 2;
                     
-                    // กลับไปใช้สีดำสนิท เพราะสูตรคูณค่าสีดำ (0,0,0) จะไม่ถูกทำให้สว่างขึ้นแล้ว
                     ctx.fillStyle = 'black';
                     ctx.fillRect(boxX, rectY - (rectHeight / 2), boxWidth, rectHeight);
 
@@ -1099,7 +1084,6 @@
                                     </label>
                                 </div>
 
-                                {/* เพิ่ม UI ปรับลดโทนสีไว้อาลัย */}
                                 <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200">
                                     <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                                         <Icon name="palette" size={18} className="text-gray-500" />
@@ -1274,7 +1258,6 @@
             };
 
             const handleImageActionClick = (actionType) => {
-                // เปลี่ยนให้แสดงกล่องถามทุกครั้ง ไม่ว่าจะวันไหน
                 setImageActionPrompt(actionType);
             };
 
