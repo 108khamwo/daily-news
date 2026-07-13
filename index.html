@@ -605,10 +605,23 @@ const StandaloneEditor = () => {
         }
         catch (e) { }
         if (useFrame && !frameImage) {
+            const directLogoUrl = "https://img2.pic.in.th/-New-14.7.69.png";
+            const proxyLogoUrl = `https://images.weserv.nl/?url=${encodeURIComponent(directLogoUrl)}&output=png`;
             const img = new Image();
             img.crossOrigin = "anonymous";
+            img.referrerPolicy = "no-referrer";
             img.onload = () => setFrameImage(img);
-            img.src = "https://img2.pic.in.th/-New-14.7.69.png";
+            img.onerror = () => {
+                // img2.pic.in.th บางครั้งไม่อนุญาต CORS เมื่อนำไปวาดบน Canvas
+                // จึงใช้พร็อกซีรูปเป็นทางสำรอง โดยต้นทางยังเป็นลิงก์เดิม
+                const fallbackImg = new Image();
+                fallbackImg.crossOrigin = "anonymous";
+                fallbackImg.referrerPolicy = "no-referrer";
+                fallbackImg.onload = () => setFrameImage(fallbackImg);
+                fallbackImg.onerror = () => console.error('โหลดโลโก้ใหม่ THAPON ไม่สำเร็จ', directLogoUrl);
+                fallbackImg.src = proxyLogoUrl;
+            };
+            img.src = directLogoUrl;
         }
     }, [useFrame, frameImage]);
     const handleImageUpload = (e) => {
@@ -1059,10 +1072,23 @@ const DateEditorModal = ({ imageUrl, action, onClose, onComplete }) => {
         }
         catch (e) { }
         if (useFrame && !frameImage) {
+            const directLogoUrl = "https://img2.pic.in.th/-New-14.7.69.png";
+            const proxyLogoUrl = `https://images.weserv.nl/?url=${encodeURIComponent(directLogoUrl)}&output=png`;
             const img = new Image();
             img.crossOrigin = "anonymous";
+            img.referrerPolicy = "no-referrer";
             img.onload = () => setFrameImage(img);
-            img.src = "https://img2.pic.in.th/-New-14.7.69.png";
+            img.onerror = () => {
+                // img2.pic.in.th บางครั้งไม่อนุญาต CORS เมื่อนำไปวาดบน Canvas
+                // จึงใช้พร็อกซีรูปเป็นทางสำรอง โดยต้นทางยังเป็นลิงก์เดิม
+                const fallbackImg = new Image();
+                fallbackImg.crossOrigin = "anonymous";
+                fallbackImg.referrerPolicy = "no-referrer";
+                fallbackImg.onload = () => setFrameImage(fallbackImg);
+                fallbackImg.onerror = () => console.error('โหลดโลโก้ใหม่ THAPON ไม่สำเร็จ', directLogoUrl);
+                fallbackImg.src = proxyLogoUrl;
+            };
+            img.src = directLogoUrl;
         }
     }, [useFrame, frameImage]);
     useEffect(() => {
