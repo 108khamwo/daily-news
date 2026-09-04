@@ -1046,7 +1046,9 @@ const Dashboard = ({ news, dataLoading, onEdit, onLoadMoreWeeks, canLoadMoreWeek
                         React.createElement("span", { style: { color: dayTheme.accent } }, dayTheme.name),
                         React.createElement("span", { className: "text-gray-600" }, date)),
                     React.createElement("div", { className: "h-px flex-grow", style: { backgroundColor: dayTheme.line } })),
-                React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" }, displayGroups[date].map(item => React.createElement(NewsCard, { key: item.id, item: item, onEdit: onEdit, db: db, appId: appId }))));
+                React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" }, [...displayGroups[date]]
+                    .sort((a, b) => (Number(b.timestamp || 0) - Number(a.timestamp || 0)) || (Number(b.createdAt || 0) - Number(a.createdAt || 0)))
+                    .map(item => React.createElement(NewsCard, { key: item.id, item: item, onEdit: onEdit, db: db, appId: appId }))));
         })),
         hasMoreWeeks && !searchQuery && !calendarDate && (React.createElement("div", { className: "pt-4 pb-8 flex justify-center fade-in" },
             React.createElement("button", { onClick: () => { setExtraWeeks(prev => prev + 1); setSelDate(''); onLoadMoreWeeks(); }, disabled: olderNewsLoading, className: "bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 hover:border-blue-200 disabled:opacity-60 px-8 py-3.5 rounded-full font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2 text-sm" },
@@ -1524,10 +1526,19 @@ const AdminPanel = ({ onCancel, editingItem, db, appId }) => {
         setSaving(true);
         const chosenDate = new Date(y - 543, m, d);
         const now = new Date();
-        chosenDate.setHours(now.getHours(), now.getMinutes());
+        // ข่าวใหม่ใช้เวลาปัจจุบันแบบละเอียดถึงมิลลิวินาที เพื่อไม่ให้ข่าวที่เพิ่มในนาทีเดียวกันมี timestamp ซ้ำกัน
+        // ข่าวที่แก้ไขจะคงเวลาเดิมไว้ (แต่ยังเปลี่ยนวันที่ผ่านช่อง วัน/เดือน/ปี ได้) เพื่อไม่ให้ลำดับข่าวกระโดด
+        const originalDate = editingItem ? new Date(editingItem.timestamp) : now;
+        chosenDate.setHours(
+            originalDate.getHours(),
+            originalDate.getMinutes(),
+            originalDate.getSeconds(),
+            originalDate.getMilliseconds()
+        );
         const payload = {
             content: content || "",
             timestamp: chosenDate.getTime(),
+            createdAt: editingItem?.createdAt ?? (editingItem?.timestamp || Date.now()),
             dateString: chosenDate.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }),
             timeString: chosenDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
             imageBase64: imgPre || null,
