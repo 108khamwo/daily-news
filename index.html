@@ -40,12 +40,59 @@
             content-visibility: auto;
             contain-intrinsic-size: 720px;
         }
+
+        /* Facebook News Chiang Mai Monitor 24 Hrs. - 15 ข่าวล่าสุดเพจเชียงใหม่ / แสดง 5 แถวและเลื่อนดูเองได้ */
+        .fb-monitor-bar { min-height: 176px; width: calc(100% - clamp(12px, 2vw, 32px)); max-width: none; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+        .fb-monitor-ticker-viewport {
+            height: 170px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-width: 0;
+            scroll-behavior: smooth;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+        .fb-monitor-ticker-track { min-width: 0; }
+        .fb-monitor-ticker-row { height: 34px; display: flex; align-items: center; min-width: 0; border-bottom: 1px solid #f3f4f6; position: relative; }
+        .fb-monitor-ticker-row:last-child { border-bottom-color: transparent; }
+        .fb-monitor-ticker-row.is-latest::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 2px;
+            background: #ef4444;
+            border-radius: 999px;
+            pointer-events: none;
+        }
+        .fb-monitor-new-badge {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            z-index: 5;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, .18);
+        }
+        .fb-monitor-ticker-viewport::-webkit-scrollbar { width: 5px; }
+        .fb-monitor-ticker-viewport::-webkit-scrollbar-track { background: transparent; }
+        .fb-monitor-ticker-viewport::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+        .fb-monitor-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+        .fb-monitor-dot.online { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.12); }
+        .fb-monitor-dot.running { background: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
+        .fb-monitor-dot.offline { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.12); }
+        @media (max-width: 640px) {
+            .fb-monitor-bar { min-height: 166px; width: calc(100% - 8px); }
+            .fb-monitor-ticker-viewport { height: 160px; }
+            .fb-monitor-ticker-row { height: 32px; }
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="module">
+// Dashboard Facebook Monitor integration v0.1.31
 // --- 1. ต้องนำ Import ทั้งหมดขึ้นมาบรรทัดแรกสุดของ <script> เสมอ ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -482,6 +529,320 @@ const searchAllExistingNews = async (rawQuery) => {
     });
     return loadFullNewsDocuments(matched);
 };
+
+// --- Facebook News Chiang Mai Monitor 24 Hrs.: ข่าวล่าสุดในวง LAN ---
+// ค่าเริ่มต้นของเครื่อง Admin ในวง LAN (เปลี่ยนได้จากปุ่ม "ตั้งค่า IP" เมื่อเชื่อมต่อไม่ได้)
+const FB_MONITOR_URL = 'http://192.168.1.102:8787';
+const getFacebookMonitorBase = () => {
+    // ถ้าหน้านี้ถูกเปิดจาก Monitor โดยตรง ให้ใช้ IP/Host ปัจจุบันเสมอ
+    if (window.location.port === '8787')
+        return window.location.origin;
+    try {
+        const saved = localStorage.getItem('fb_monitor_base_url');
+        if (saved)
+            return saved.replace(/\/$/, '');
+    }
+    catch (e) { }
+    return String(FB_MONITOR_URL || '').trim().replace(/\/$/, '');
+};
+const formatFacebookMonitorTime = (value) => {
+    if (!value)
+        return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime()))
+        return String(value);
+    const now = new Date();
+    const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    if (sameDay)
+        return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+const FacebookLatestTicker = () => {
+    const VISIBLE_ROWS = 5;
+    const MAX_LATEST_ITEMS = 15;
+    const [playItems, setPlayItems] = useState([]);
+    const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, updatedAt: null });
+    const [showUpdateNotice, setShowUpdateNotice] = useState(false);
+    const [pendingNewCount, setPendingNewCount] = useState(0);
+    const [browsingOlder, setBrowsingOlder] = useState(false);
+    const monitorBaseRef = useRef(getFacebookMonitorBase());
+    const knownItemIdsRef = useRef(new Set());
+    const initializedRef = useRef(false);
+    const lastUpdatedAtRef = useRef(null);
+    const updateNoticeTimerRef = useRef(null);
+    const tickerViewportRef = useRef(null);
+    const userInteractionAtRef = useRef(0);
+    const browsingOlderRef = useRef(false);
+    const pendingNewCountRef = useRef(0);
+    const autoScrollTimerRef = useRef(null);
+    const monitorBase = monitorBaseRef.current;
+
+    const getItemKey = (item) => String(item?.id || item?.url || item?.permalink || `${item?.published_at || ''}|${item?.headline || ''}`);
+    const getRowHeight = () => window.innerWidth <= 640 ? 32 : 34;
+    const isViewportAtLatest = () => {
+        const viewport = tickerViewportRef.current;
+        if (!viewport)
+            return true;
+        return (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight) <= 5;
+    };
+    const setBrowsingState = (value) => {
+        browsingOlderRef.current = value;
+        setBrowsingOlder(value);
+    };
+    const setPendingCount = (valueOrUpdater) => {
+        setPendingNewCount(prev => {
+            const next = typeof valueOrUpdater === 'function' ? valueOrUpdater(prev) : valueOrUpdater;
+            pendingNewCountRef.current = next;
+            return next;
+        });
+    };
+    const noteUserInteraction = () => {
+        userInteractionAtRef.current = Date.now();
+    };
+    const handleTickerScroll = () => {
+        const viewport = tickerViewportRef.current;
+        if (!viewport)
+            return;
+        const atLatest = isViewportAtLatest();
+        if (atLatest) {
+            if (browsingOlderRef.current)
+                setBrowsingState(false);
+            if (pendingNewCountRef.current)
+                setPendingCount(0);
+            return;
+        }
+        // นับเป็นการเลื่อนดูข่าวเก่าเฉพาะเมื่อมีการแตะ/ลาก/หมุนล้อจากผู้ใช้จริง
+        if ((Date.now() - userInteractionAtRef.current) < 1500)
+            setBrowsingState(true);
+    };
+    const scrollToLatest = (behavior = 'smooth') => {
+        const viewport = tickerViewportRef.current;
+        if (!viewport)
+            return;
+        setBrowsingState(false);
+        setPendingCount(0);
+        requestAnimationFrame(() => {
+            const latestTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+            viewport.scrollTo({ top: latestTop, behavior });
+        });
+    };
+
+    useEffect(() => {
+        let alive = true;
+        const loadLatest = async () => {
+            if (!monitorBase) {
+                setMonitorState({ loading: false, connected: false, running: false, updatedAt: null });
+                return;
+            }
+            try {
+                const controller = new AbortController();
+                const abortTimer = setTimeout(() => controller.abort(), 3500);
+                const response = await fetch(`${monitorBase}/api/public/latest?limit=30`, { cache: 'no-store', signal: controller.signal });
+                clearTimeout(abortTimer);
+                if (!response.ok)
+                    throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (!alive)
+                    return;
+
+                const nextItems = Array.isArray(data.items) ? data.items : [];
+                const nextUpdatedAt = data.updated_at || null;
+                setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: nextUpdatedAt });
+
+                // เมื่ออัปเดตรอบใหม่เสร็จ ให้แสดง "อัปเดตล่าสุด" เพียง 5 วินาที
+                if (nextUpdatedAt && nextUpdatedAt !== lastUpdatedAtRef.current) {
+                    lastUpdatedAtRef.current = nextUpdatedAt;
+                    setShowUpdateNotice(true);
+                    if (updateNoticeTimerRef.current)
+                        clearTimeout(updateNoticeTimerRef.current);
+                    updateNoticeTimerRef.current = setTimeout(() => {
+                        setShowUpdateNotice(false);
+                        updateNoticeTimerRef.current = null;
+                    }, 5000);
+                }
+
+                // เปิดครั้งแรก: เก็บเฉพาะ 15 ข่าวล่าสุด เรียงเก่า -> ใหม่
+                if (!initializedRef.current) {
+                    initializedRef.current = true;
+                    knownItemIdsRef.current = new Set(nextItems.map(getItemKey));
+                    const initialSequence = nextItems.slice(0, MAX_LATEST_ITEMS).reverse();
+                    setPlayItems(initialSequence);
+                    requestAnimationFrame(() => {
+                        if (tickerViewportRef.current)
+                            tickerViewportRef.current.scrollTop = 0;
+                    });
+                    return;
+                }
+
+                // ข่าวใหม่จะถูกเพิ่มท้ายรายการ (ลำดับเก่า -> ใหม่)
+                // ถ้าผู้ใช้กำลังเลื่อนดูข่าวเก่า จะไม่เด้งไปข่าวล่าสุด แต่ขึ้นปุ่มให้กดเอง
+                const freshItems = nextItems.filter(item => !knownItemIdsRef.current.has(getItemKey(item)));
+                nextItems.forEach(item => knownItemIdsRef.current.add(getItemKey(item)));
+                if (freshItems.length > 0) {
+                    const chronologicalFresh = freshItems.slice().reverse();
+                    const wasBrowsingOlder = browsingOlderRef.current || !isViewportAtLatest();
+                    setPlayItems(prev => [...prev, ...chronologicalFresh].slice(-MAX_LATEST_ITEMS));
+                    if (wasBrowsingOlder) {
+                        setBrowsingState(true);
+                        setPendingCount(prev => Math.min(MAX_LATEST_ITEMS, prev + chronologicalFresh.length));
+                    }
+                    else {
+                        // ถ้าเดิมอยู่ปลายรายการอยู่แล้ว ข่าวใหม่ควรเห็นได้ทันที
+                        setTimeout(() => scrollToLatest('smooth'), 60);
+                    }
+                }
+                else if (nextItems.length > 0) {
+                    setPlayItems(prev => prev.length ? prev : nextItems.slice(0, MAX_LATEST_ITEMS).reverse());
+                }
+            }
+            catch (error) {
+                if (!alive)
+                    return;
+                console.warn('เชื่อมต่อ Facebook News Chiang Mai Monitor 24 Hrs. ไม่สำเร็จ', error);
+                setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
+            }
+        };
+        loadLatest();
+        const timer = setInterval(loadLatest, 10000);
+        return () => {
+            alive = false;
+            clearInterval(timer);
+            if (updateNoticeTimerRef.current) {
+                clearTimeout(updateNoticeTimerRef.current);
+                updateNoticeTimerRef.current = null;
+            }
+        };
+    }, [monitorBase]);
+
+    // รอบแรกเลื่อนจากข่าวเก่าไปข่าวล่าสุดทีละรายการตามเดิม
+    // แต่ทันทีที่ผู้ใช้เลื่อนดูเอง จะหยุดอัตโนมัติแบบถาวรจนกว่าจะกลับมาที่ข่าวล่าสุด
+    useEffect(() => {
+        if (autoScrollTimerRef.current) {
+            clearTimeout(autoScrollTimerRef.current);
+            autoScrollTimerRef.current = null;
+        }
+        if (playItems.length <= VISIBLE_ROWS || browsingOlder)
+            return;
+        const tick = () => {
+            const viewport = tickerViewportRef.current;
+            if (!viewport || browsingOlderRef.current)
+                return;
+            const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+            if (viewport.scrollTop >= maxScrollTop - 2)
+                return;
+            const rowHeight = getRowHeight();
+            const nextTop = Math.min(maxScrollTop, Math.round(viewport.scrollTop / rowHeight) * rowHeight + rowHeight);
+            viewport.scrollTo({ top: nextTop, behavior: 'smooth' });
+            autoScrollTimerRef.current = setTimeout(tick, 3800);
+        };
+        autoScrollTimerRef.current = setTimeout(tick, 3800);
+        return () => {
+            if (autoScrollTimerRef.current) {
+                clearTimeout(autoScrollTimerRef.current);
+                autoScrollTimerRef.current = null;
+            }
+        };
+    }, [playItems, browsingOlder]);
+
+    const saveMonitorUrl = () => {
+        const current = monitorBase || FB_MONITOR_URL;
+        const value = window.prompt('ใส่ URL เครื่องแอดมิน เช่น http://192.168.1.102:8787', current);
+        if (value === null)
+            return;
+        const clean = value.trim().replace(/\/$/, '');
+        try {
+            if (clean)
+                localStorage.setItem('fb_monitor_base_url', clean);
+            else
+                localStorage.removeItem('fb_monitor_base_url');
+        }
+        catch (e) { }
+        window.location.reload();
+    };
+
+    // ถ้าเครื่อง Admin ยังไม่เปิด/ติดต่อไม่ได้ ให้ซ่อนส่วนข่าวล่าสุดทั้งชุด
+    if (!monitorState.connected)
+        return null;
+
+    let statusText = '15 ข่าวล่าสุดเพจเชียงใหม่';
+    let statusClass = 'text-blue-700 bg-blue-50';
+    let dotClass = monitorState.running ? 'running' : 'online';
+    if (showUpdateNotice && monitorState.updatedAt) {
+        statusText = `อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)}`;
+        statusClass = 'text-emerald-700 bg-emerald-50';
+        dotClass = 'online';
+    }
+
+    const latestKey = playItems.length ? getItemKey(playItems[playItems.length - 1]) : '';
+
+    return React.createElement('section', { className: 'bg-white border-b border-gray-100 shadow-sm relative z-50' },
+        React.createElement('div', { className: 'fb-monitor-bar px-2 sm:px-3 md:px-4 flex items-start gap-2 md:gap-3 py-1' },
+            React.createElement('div', { className: 'mt-1 shrink-0 flex flex-col items-start gap-0.5' },
+                React.createElement('button', {
+                    type: 'button',
+                    className: `inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold ${statusClass}`,
+                    title: statusText
+                },
+                    React.createElement('span', { className: `fb-monitor-dot ${dotClass}` }),
+                    React.createElement('span', null, statusText)
+                ),
+                React.createElement('span', {
+                    className: 'text-[9px] md:text-[10px] leading-tight text-gray-400 whitespace-nowrap pl-1',
+                    title: 'ข่าวล่าสุดจะแสดงเฉพาะเมื่อเครื่อง Admin เปิด Facebook News Chiang Mai Monitor 24 Hrs. และอุปกรณ์อยู่ในวง LAN เดียวกัน'
+                }, 'Online เฉพาะตอนเปิดระบบ · LAN เดียวกัน')
+            ),
+            monitorState.connected && playItems.length > 0 ? React.createElement('div', {
+                className: 'relative flex-1 min-w-0'
+            },
+                React.createElement('div', {
+                    ref: tickerViewportRef,
+                    className: 'fb-monitor-ticker-viewport rounded-lg min-w-0',
+                    onWheel: noteUserInteraction,
+                    onTouchStart: noteUserInteraction,
+                    onPointerDown: noteUserInteraction,
+                    onScroll: handleTickerScroll,
+                    title: 'เลื่อนขึ้น-ลงเพื่อดู 15 ข่าวล่าสุดเพจเชียงใหม่ได้เอง'
+                },
+                    React.createElement('div', { className: 'fb-monitor-ticker-track' }, playItems.map(item => {
+                        const itemKey = getItemKey(item);
+                        const isLatest = itemKey === latestKey;
+                        return React.createElement('a', {
+                            key: itemKey,
+                            href: item.url,
+                            target: '_blank',
+                            rel: 'noopener',
+                            className: `fb-monitor-ticker-row gap-2 md:gap-3 hover:bg-blue-50/60 rounded-lg px-1.5 md:px-2 transition-colors group ${isLatest ? 'is-latest' : ''}`
+                        },
+                            React.createElement('span', { className: 'text-[11px] md:text-xs text-gray-400 w-[56px] md:w-[66px] shrink-0 tabular-nums' }, formatFacebookMonitorTime(item.published_at)),
+                            React.createElement('span', { className: 'text-[13px] md:text-sm font-semibold text-gray-700 truncate min-w-0 flex-1 group-hover:text-blue-700' }, item.headline || '(ไม่มีหัวข้อ)')
+                        );
+                    }))
+                ),
+                pendingNewCount > 0 && browsingOlder && React.createElement('button', {
+                    type: 'button',
+                    onClick: () => scrollToLatest('smooth'),
+                    className: 'fb-monitor-new-badge inline-flex items-center gap-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 text-[11px] md:text-xs font-bold transition-colors',
+                    title: 'กดเพื่อไปยังข่าวใหม่ล่าสุด'
+                },
+                    React.createElement('span', null, `มีข่าวใหม่ ${pendingNewCount} ข่าว`),
+                    React.createElement(Icon, { name: 'arrow-down', size: 14 })
+                )
+            ) : React.createElement('div', { className: 'flex-1 min-w-0 text-xs md:text-sm text-gray-400 truncate px-1 pt-2' },
+                monitorState.loading ? 'กำลังเชื่อมต่อกับเครื่องแอดมิน...' : 'ยังไม่มีข่าวล่าสุด'
+            ),
+            React.createElement('a', {
+                href: monitorBase || '#',
+                target: '_blank',
+                rel: 'noopener',
+                className: 'mt-1 shrink-0 inline-flex items-center gap-1 text-[11px] md:text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 md:px-3 py-2 rounded-full transition-colors'
+            },
+                React.createElement('span', { className: 'hidden sm:inline' }, 'ดูข่าวทั้งหมด'),
+                React.createElement(Icon, { name: 'arrow-up-right', size: 14 })
+            )
+        )
+    );
+};
+
 // --- Main App ---
 const App = () => {
     const [user, setUser] = useState(null);
@@ -493,6 +854,10 @@ const App = () => {
     const [loadedPreviousWeeks, setLoadedPreviousWeeks] = useState(0);
     const [editingItem, setEditingItem] = useState(null);
     const [showUpdateAlert, setShowUpdateAlert] = useState(true);
+    useEffect(() => {
+        const timer = setTimeout(() => setShowUpdateAlert(false), 5000);
+        return () => clearTimeout(timer);
+    }, []);
     useEffect(() => {
         signInAnonymously(auth).catch(() => setUser({ uid: 'guest' }));
         const unsub = onAuthStateChanged(auth, (u) => {
@@ -546,6 +911,7 @@ const App = () => {
                 React.createElement("p", { className: "text-gray-600 font-semibold text-sm animate-pulse" }, loading ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E40\u0E15\u0E23\u0E35\u0E22\u0E21\u0E23\u0E30\u0E1A\u0E1A..." : "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E48\u0E32\u0E27\u0E1B\u0E23\u0E30\u0E08\u0E33\u0E2A\u0E31\u0E1B\u0E14\u0E32\u0E2B\u0E4C..."),
                 !loading && React.createElement("p", { className: "text-gray-400 text-xs mt-2 leading-relaxed" }, "\u0E23\u0E39\u0E1B\u0E02\u0E48\u0E32\u0E27\u0E2D\u0E32\u0E08\u0E21\u0E35\u0E08\u0E33\u0E19\u0E27\u0E19\u0E21\u0E32\u0E01 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E04\u0E23\u0E39\u0E48\u0E1A\u0E19\u0E21\u0E37\u0E2D\u0E16\u0E37\u0E2D"))));
     return (React.createElement("div", { className: "min-h-screen pb-24" },
+        React.createElement(FacebookLatestTicker, null),
         showUpdateAlert && (React.createElement("div", { className: "bg-gradient-to-r from-blue-600 to-indigo-600 px-4 md:px-8 py-2.5 flex items-center justify-between text-white text-sm shadow-sm relative z-50" },
             React.createElement("div", { className: "flex items-center gap-2 md:gap-3 overflow-hidden" },
                 React.createElement("div", { className: "bg-white/20 p-1.5 rounded-full flex items-center justify-center shrink-0" },
