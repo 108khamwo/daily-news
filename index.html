@@ -81,10 +81,24 @@
         .fb-monitor-dot.online { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.12); }
         .fb-monitor-dot.running { background: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
         .fb-monitor-dot.offline { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.12); }
+        .fb-monitor-warning-wrap { width: calc(100% - clamp(12px, 2vw, 32px)); max-width: none; margin: 0 auto; box-sizing: border-box; }
+        .fb-monitor-warning { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 14px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+        .fb-monitor-warning-copy { min-width: 0; flex: 1; }
+        .fb-monitor-warning-copy b { display: block; font-size: 13px; line-height: 1.35; }
+        .fb-monitor-warning-copy span { display: block; margin-top: 2px; font-size: 11px; line-height: 1.45; color: #9a3412; opacity: .82; }
+        .fb-monitor-warning-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+        .fb-monitor-warning-btn { border-radius: 999px; padding: 7px 10px; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; border: 1px solid #fdba74; background: #fff; color: #9a3412; cursor: pointer; }
+        .fb-monitor-warning-btn:hover { background: #ffedd5; }
+        .fb-monitor-warning-btn.primary { background: #ea580c; color: #fff; border-color: #ea580c; }
+        .fb-monitor-warning-btn.primary:hover { background: #c2410c; }
         @media (max-width: 640px) {
             .fb-monitor-bar { min-height: 166px; width: calc(100% - 8px); }
             .fb-monitor-ticker-viewport { height: 160px; }
             .fb-monitor-ticker-row { height: 32px; }
+            .fb-monitor-warning-wrap { width: calc(100% - 8px); }
+            .fb-monitor-warning { align-items: flex-start; flex-wrap: wrap; }
+            .fb-monitor-warning-actions { width: 100%; }
+            .fb-monitor-warning-btn { flex: 1 1 auto; }
         }
     </style>
 </head>
@@ -92,7 +106,7 @@
     <div id="root"></div>
 
     <script type="module">
-// Dashboard Facebook Monitor integration v0.1.31
+// Dashboard Facebook Monitor integration v0.1.36
 // --- 1. ต้องนำ Import ทั้งหมดขึ้นมาบรรทัดแรกสุดของ <script> เสมอ ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -565,6 +579,8 @@ const FacebookLatestTicker = () => {
     const [showUpdateNotice, setShowUpdateNotice] = useState(false);
     const [pendingNewCount, setPendingNewCount] = useState(0);
     const [browsingOlder, setBrowsingOlder] = useState(false);
+    const [showConnectionWarning, setShowConnectionWarning] = useState(false);
+    const [retryNonce, setRetryNonce] = useState(0);
     const monitorBaseRef = useRef(getFacebookMonitorBase());
     const knownItemIdsRef = useRef(new Set());
     const initializedRef = useRef(false);
@@ -575,6 +591,7 @@ const FacebookLatestTicker = () => {
     const browsingOlderRef = useRef(false);
     const pendingNewCountRef = useRef(0);
     const autoScrollTimerRef = useRef(null);
+    const connectionWarningTimerRef = useRef(null);
     const monitorBase = monitorBaseRef.current;
 
     const getItemKey = (item) => String(item?.id || item?.url || item?.permalink || `${item?.published_at || ''}|${item?.headline || ''}`);
@@ -629,6 +646,13 @@ const FacebookLatestTicker = () => {
 
     useEffect(() => {
         let alive = true;
+        setShowConnectionWarning(false);
+        if (connectionWarningTimerRef.current)
+            clearTimeout(connectionWarningTimerRef.current);
+        connectionWarningTimerRef.current = setTimeout(() => {
+            if (alive)
+                setShowConnectionWarning(true);
+        }, 6500);
         const loadLatest = async () => {
             if (!monitorBase) {
                 setMonitorState({ loading: false, connected: false, running: false, updatedAt: null });
@@ -647,6 +671,11 @@ const FacebookLatestTicker = () => {
 
                 const nextItems = Array.isArray(data.items) ? data.items : [];
                 const nextUpdatedAt = data.updated_at || null;
+                if (connectionWarningTimerRef.current) {
+                    clearTimeout(connectionWarningTimerRef.current);
+                    connectionWarningTimerRef.current = null;
+                }
+                setShowConnectionWarning(false);
                 setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: nextUpdatedAt });
 
                 // เมื่ออัปเดตรอบใหม่เสร็จ ให้แสดง "อัปเดตล่าสุด" เพียง 5 วินาที
@@ -700,6 +729,12 @@ const FacebookLatestTicker = () => {
                     return;
                 console.warn('เชื่อมต่อ Facebook News Chiang Mai Monitor 24 Hrs. ไม่สำเร็จ', error);
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
+                if (!connectionWarningTimerRef.current) {
+                    connectionWarningTimerRef.current = setTimeout(() => {
+                        if (alive)
+                            setShowConnectionWarning(true);
+                    }, 6500);
+                }
             }
         };
         loadLatest();
@@ -711,8 +746,12 @@ const FacebookLatestTicker = () => {
                 clearTimeout(updateNoticeTimerRef.current);
                 updateNoticeTimerRef.current = null;
             }
+            if (connectionWarningTimerRef.current) {
+                clearTimeout(connectionWarningTimerRef.current);
+                connectionWarningTimerRef.current = null;
+            }
         };
-    }, [monitorBase]);
+    }, [monitorBase, retryNonce]);
 
     // รอบแรกเลื่อนจากข่าวเก่าไปข่าวล่าสุดทีละรายการตามเดิม
     // แต่ทันทีที่ผู้ใช้เลื่อนดูเอง จะหยุดอัตโนมัติแบบถาวรจนกว่าจะกลับมาที่ข่าวล่าสุด
@@ -760,9 +799,40 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // ถ้าเครื่อง Admin ยังไม่เปิด/ติดต่อไม่ได้ ให้ซ่อนส่วนข่าวล่าสุดทั้งชุด
-    if (!monitorState.connected)
-        return null;
+    // ถ้าติดต่อ Monitor ไม่ได้ในช่วงสั้น ๆ ยังซ่อนไว้ก่อน เพื่อลดการกระพริบตอนเปิดหน้า
+    // หากเกินประมาณ 6.5 วินาที ให้แสดงคำแนะนำเรื่องเครื่อง Monitor / LAN / Local Network Access
+    if (!monitorState.connected) {
+        if (!showConnectionWarning)
+            return null;
+        return React.createElement('section', { className: 'bg-white border-b border-gray-100 shadow-sm relative z-50 py-2' },
+            React.createElement('div', { className: 'fb-monitor-warning-wrap' },
+                React.createElement('div', { className: 'fb-monitor-warning' },
+                    React.createElement(Icon, { name: 'triangle-alert', size: 18, className: 'shrink-0 mt-0.5' }),
+                    React.createElement('div', { className: 'fb-monitor-warning-copy' },
+                        React.createElement('b', null, 'ไม่สามารถเชื่อมต่อ Facebook News Chiang Mai Monitor ได้'),
+                        React.createElement('span', null, 'ตรวจสอบว่าเครื่อง Monitor เปิดอยู่ · อยู่ใน LAN เดียวกัน · Local Network Access = Allow'),
+                        React.createElement('span', null, 'หากเคยกด Block ให้เปิด Site settings ของเว็บนี้ แล้วเปลี่ยน Local network access เป็น Allow')
+                    ),
+                    React.createElement('div', { className: 'fb-monitor-warning-actions' },
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'fb-monitor-warning-btn primary',
+                            onClick: () => {
+                                setMonitorState(prev => ({ ...prev, loading: true }));
+                                setShowConnectionWarning(false);
+                                setRetryNonce(v => v + 1);
+                            }
+                        }, 'ลองเชื่อมต่ออีกครั้ง'),
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'fb-monitor-warning-btn',
+                            onClick: saveMonitorUrl
+                        }, 'ตั้งค่า IP')
+                    )
+                )
+            )
+        );
+    }
 
     let statusText = '15 ข่าวล่าสุดเพจเชียงใหม่';
     let statusClass = 'text-blue-700 bg-blue-50';
