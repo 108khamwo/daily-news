@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
-    <meta name="cm108-dashboard-version" content="0.1.54">
+    <meta name="cm108-dashboard-version" content="0.1.55">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.54';
+        const CURRENT_DASHBOARD_VERSION = '0.1.55';
         const CHECK_EVERY_MS = 60000;
         let checking = false;
         let reloading = false;
@@ -705,8 +705,10 @@ const searchAllExistingNews = async (rawQuery) => {
 
 // --- Facebook News Chiang Mai Monitor 24 Hrs.: ข่าวล่าสุดในวง LAN ---
 // ค่าเริ่มต้นของเครื่อง Admin ในวง LAN (เปลี่ยนได้จากปุ่ม "ตั้งค่า IP" เมื่อเชื่อมต่อไม่ได้)
-const FB_MONITOR_URL = 'http://192.168.1.102:8787';
+const FB_MONITOR_MDNS_URL = 'http://cm108-monitor.local:8787';
+const FB_MONITOR_IP_FALLBACK_URL = 'http://192.168.1.102:8787';
 const FB_MONITOR_OLD_DEFAULT_URL = 'http://192.168.1.7:8787';
+const FB_MONITOR_URL = FB_MONITOR_MDNS_URL;
 const FB_MONITOR_IS_APPLE_MOBILE = (() => {
     const ua = navigator.userAgent || '';
     const platform = navigator.platform || '';
@@ -734,25 +736,31 @@ const buildFacebookMonitorLocalDashboardUrl = (monitorBase) => {
         return `${String(monitorBase || FB_MONITOR_URL).replace(/\/$/, '')}/daily-news`;
     }
 };
-const getFacebookMonitorBase = () => {
-    // ถ้าหน้านี้ถูกเปิดจาก Monitor โดยตรง ให้ใช้ IP/Host ปัจจุบันเสมอ
-    if (window.location.port === '8787')
-        return window.location.origin;
+const getFacebookMonitorSavedFallback = () => {
     try {
         const saved = localStorage.getItem('fb_monitor_base_url');
-        if (saved) {
-            const cleanSaved = saved.replace(/\/$/, '');
-            // v0.1.43: LAN ของเครื่อง Admin ใช้ .102 และปรับการขอสิทธิ์ LNA ให้เสถียรขึ้น
-            // ถ้า browser ยังจำค่า default ชั่วคราว .7 ไว้ ให้ย้ายอัตโนมัติครั้งเดียว
-            if (cleanSaved === FB_MONITOR_OLD_DEFAULT_URL) {
-                localStorage.setItem('fb_monitor_base_url', FB_MONITOR_URL);
-                return FB_MONITOR_URL;
-            }
-            return cleanSaved;
+        if (!saved) return '';
+        const clean = saved.trim().replace(/\/$/, '');
+        if (clean === FB_MONITOR_OLD_DEFAULT_URL) {
+            localStorage.setItem('fb_monitor_base_url', FB_MONITOR_IP_FALLBACK_URL);
+            return FB_MONITOR_IP_FALLBACK_URL;
         }
-    }
-    catch (e) { }
-    return String(FB_MONITOR_URL || '').trim().replace(/\/$/, '');
+        return clean;
+    } catch (e) { return ''; }
+};
+const getFacebookMonitorBase = () => {
+    // Local Dashboard is always same-origin. On GitHub use the stable mDNS name
+    // first, then fall back to the last saved numeric IP if the company network
+    // blocks multicast/mDNS.
+    if (window.location.port === '8787') return window.location.origin;
+    return FB_MONITOR_MDNS_URL;
+};
+const getFacebookMonitorCandidates = (preferred = '') => {
+    if (FB_MONITOR_IS_LOCAL_DASHBOARD) return [window.location.origin];
+    const saved = getFacebookMonitorSavedFallback();
+    const raw = [preferred, FB_MONITOR_MDNS_URL, saved, FB_MONITOR_IP_FALLBACK_URL];
+    const seen = new Set();
+    return raw.map(v => String(v || '').trim().replace(/\/$/, '')).filter(v => v && !seen.has(v) && seen.add(v));
 };
 const getFacebookMonitorPermissionState = async () => {
     if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
@@ -878,10 +886,10 @@ const FacebookLatestTicker = () => {
     // v0.1.49: read the Admin display setting first, then request exactly that
     // amount of news. This makes 10/20/30/all authoritative and avoids any
     // stale/default LIMIT in /api/public/latest forcing the sidebar to 20.
-    const fetchMonitorSnapshot = async (timeoutMs) => {
+    const fetchMonitorSnapshot = async (base, timeoutMs) => {
         let publicConfig = null;
         try {
-            const cfgResponse = await fetchFacebookMonitor(`${monitorBase}/api/public/config`, timeoutMs);
+            const cfgResponse = await fetchFacebookMonitor(`${base}/api/public/config`, timeoutMs);
             if (cfgResponse.ok) publicConfig = await cfgResponse.json();
         } catch (e) {
             // Older Monitor versions do not have /api/public/config. Fall back
@@ -891,8 +899,8 @@ const FacebookLatestTicker = () => {
         if (publicConfig && publicConfig.display_limit !== undefined && publicConfig.display_limit !== null) {
             const wanted = normalizeDisplayLimit(publicConfig.display_limit);
             const latestUrl = wanted === 0
-                ? `${monitorBase}/api/public/latest`
-                : `${monitorBase}/api/public/latest?limit=${wanted}`;
+                ? `${base}/api/public/latest`
+                : `${base}/api/public/latest?limit=${wanted}`;
             const response = await fetchFacebookMonitor(latestUrl, timeoutMs);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const latestData = await response.json();
@@ -901,15 +909,17 @@ const FacebookLatestTicker = () => {
                 display_limit: wanted,
                 check_interval_minutes: publicConfig.check_interval_minutes ?? latestData.check_interval_minutes,
                 history_hours: publicConfig.history_hours ?? latestData.history_hours,
-                monitor_version: publicConfig.version || latestData.version || null
+                monitor_version: publicConfig.version || latestData.version || null,
+                mdns_url: publicConfig.mdns_url || latestData.mdns_url || FB_MONITOR_MDNS_URL,
+                lan_url: publicConfig.lan_url || latestData.lan_url || null
             };
         }
 
-        let response = await fetchFacebookMonitor(`${monitorBase}/api/public/latest`, timeoutMs);
+        let response = await fetchFacebookMonitor(`${base}/api/public/latest`, timeoutMs);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         let data = await response.json();
         if (data.display_limit === undefined || data.display_limit === null) {
-            const legacyResponse = await fetchFacebookMonitor(`${monitorBase}/api/public/latest?limit=20`, timeoutMs);
+            const legacyResponse = await fetchFacebookMonitor(`${base}/api/public/latest?limit=20`, timeoutMs);
             if (legacyResponse.ok) {
                 const legacyData = await legacyResponse.json();
                 data = { ...legacyData, display_limit: 20 };
@@ -918,6 +928,23 @@ const FacebookLatestTicker = () => {
             }
         }
         return data;
+    };
+
+    const fetchAvailableMonitorSnapshot = async (timeoutMs) => {
+        let lastError = null;
+        const candidates = getFacebookMonitorCandidates(monitorBaseRef.current || monitorBase);
+        for (let i = 0; i < candidates.length; i++) {
+            const base = candidates[i];
+            const tryTimeout = FB_MONITOR_IS_IOS_GITHUB ? Math.min(timeoutMs, 3500) : (base === FB_MONITOR_MDNS_URL ? Math.min(timeoutMs, 6000) : (i <= 1 ? timeoutMs : Math.min(timeoutMs, 5000)));
+            try {
+                const data = await fetchMonitorSnapshot(base, tryTimeout);
+                monitorBaseRef.current = base;
+                return { data, base };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+        throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
     useEffect(() => {
@@ -944,7 +971,9 @@ const FacebookLatestTicker = () => {
                 if (alive) setPermissionState(pstate);
                 // v0.1.43: รอบแรกเผื่อเวลาให้ผู้ใช้กด Allow ที่ Local Network Access
                 // เดิม 3.5 วินาทีสั้นเกินไปและอาจตัด request ระหว่าง permission prompt
-                const data = await fetchMonitorSnapshot(initializedRef.current ? 8000 : 25000);
+                const result = await fetchAvailableMonitorSnapshot(initializedRef.current ? 8000 : 25000);
+                const data = result.data;
+                const usedMonitorBase = result.base;
                 if (!alive) return;
 
                 // iPhone/iPad: if Safari can confirm that the Monitor is online,
@@ -952,7 +981,7 @@ const FacebookLatestTicker = () => {
                 // HTTP LAN restrictions for the news ticker. The GitHub URL is
                 // carried along so the local page can return here if Monitor stops.
                 if (FB_MONITOR_IS_IOS_GITHUB) {
-                    const localUrl = buildFacebookMonitorLocalDashboardUrl(monitorBase);
+                    const localUrl = buildFacebookMonitorLocalDashboardUrl(usedMonitorBase || FB_MONITOR_MDNS_URL);
                     window.location.replace(localUrl);
                     return;
                 }
@@ -1091,9 +1120,11 @@ const FacebookLatestTicker = () => {
         if (!monitorBase || manualConnecting) return;
         setManualConnecting(true);
         try {
-            const data = await fetchMonitorSnapshot(30000);
+            const result = await fetchAvailableMonitorSnapshot(30000);
+            const data = result.data;
+            const usedMonitorBase = result.base;
             if (FB_MONITOR_IS_IOS_GITHUB) {
-                window.location.replace(buildFacebookMonitorLocalDashboardUrl(monitorBase));
+                window.location.replace(buildFacebookMonitorLocalDashboardUrl(usedMonitorBase || FB_MONITOR_MDNS_URL));
                 return;
             }
             const nextDisplayLimit = normalizeDisplayLimit(data.display_limit);
@@ -1123,8 +1154,8 @@ const FacebookLatestTicker = () => {
     };
 
     const saveMonitorUrl = () => {
-        const current = monitorBase || FB_MONITOR_URL;
-        const value = window.prompt('ใส่ URL เครื่องแอดมิน เช่น http://192.168.1.102:8787', current);
+        const current = getFacebookMonitorSavedFallback() || FB_MONITOR_IP_FALLBACK_URL;
+        const value = window.prompt('ใส่ URL/IP สำรองของเครื่อง Monitor เช่น http://192.168.1.102:8787\nชื่อหลักของระบบคือ http://cm108-monitor.local:8787', current);
         if (value === null) return;
         const clean = value.trim().replace(/\/$/, '');
         try {
@@ -1138,16 +1169,23 @@ const FacebookLatestTicker = () => {
     // blocked, never ask for the IP again; the saved IP is already used. Offer
     // a small direct local link instead. If Monitor is off, the sidebar stays hidden.
     if (!monitorState.connected && FB_MONITOR_IS_IOS_GITHUB && iosLocalFallback) {
-        const localUrl = buildFacebookMonitorLocalDashboardUrl(monitorBase);
+        const localUrl = buildFacebookMonitorLocalDashboardUrl(FB_MONITOR_MDNS_URL);
+        const ipFallbackBase = getFacebookMonitorSavedFallback() || FB_MONITOR_IP_FALLBACK_URL;
+        const ipFallbackUrl = buildFacebookMonitorLocalDashboardUrl(ipFallbackBase);
         return React.createElement('div', { className: 'fb-monitor-warning-mini' },
             React.createElement('a', {
                 className: 'fb-monitor-warning-pill fb-monitor-ios-local-link',
                 href: localUrl,
-                title: 'เปิดข่าวล่าสุดผ่านเครื่อง Monitor ใน Wi-Fi เดียวกัน'
+                title: 'เปิดข่าวล่าสุดผ่านชื่อคงที่ cm108-monitor.local'
             },
                 React.createElement(Icon, { name: 'arrow-up-right', size: 13 }),
-                React.createElement('span', null, 'เปิดข่าวล่าสุดบน iPhone/iPad')
-            )
+                React.createElement('span', null, 'เปิดข่าวล่าสุดบน iPhone/iPad (.local)')
+            ),
+            ipFallbackBase !== FB_MONITOR_MDNS_URL && React.createElement('a', {
+                className: 'fb-monitor-warning-pill fb-monitor-ios-local-link',
+                href: ipFallbackUrl,
+                title: 'ใช้ IP สำรองกรณีเครือข่ายบริษัทบล็อก mDNS'
+            }, React.createElement('span', null, 'ใช้ IP สำรอง'))
         );
     }
 
@@ -1173,7 +1211,7 @@ const FacebookLatestTicker = () => {
                     React.createElement('span', null, permissionState === 'denied'
                         ? 'สิทธิ์ Local Network ถูกบล็อกอยู่ ให้เปิด Site settings แล้วตั้ง Local network = Allow'
                         : 'ตรวจสอบว่าเครื่อง Monitor เปิดอยู่ · อยู่ใน LAN เดียวกัน · Local Network Access = Allow'),
-                    React.createElement('span', null, 'ถ้า IP เครื่อง Admin เปลี่ยน ให้กด “ตั้งค่า IP” แล้วใส่ URL ใหม่')
+                    React.createElement('span', null, 'ระบบใช้ cm108-monitor.local เป็นหลัก · ถ้าเครือข่ายบริษัทบล็อก mDNS ค่อยตั้งค่า IP สำรอง')
                 ),
                 React.createElement('div', { className: 'fb-monitor-warning-actions' },
                     React.createElement('button', {
@@ -1182,7 +1220,7 @@ const FacebookLatestTicker = () => {
                         disabled: manualConnecting,
                         onClick: requestLanAndRetry
                     }, manualConnecting ? 'กำลังเชื่อมต่อ…' : (permissionState === 'denied' ? 'ลองใหม่หลัง Allow' : 'อนุญาต LAN / เชื่อมต่อ')),
-                    React.createElement('button', { type: 'button', className: 'fb-monitor-warning-btn', onClick: saveMonitorUrl }, 'ตั้งค่า IP')
+                    React.createElement('button', { type: 'button', className: 'fb-monitor-warning-btn', onClick: saveMonitorUrl }, 'ตั้งค่า IP สำรอง')
                 )
             )
         );
