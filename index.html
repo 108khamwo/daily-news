@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0159">
-    <link rel="shortcut icon" href="favicon.ico?v=0159">
-    <meta name="cm108-dashboard-version" content="0.1.59">
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0163">
+    <link rel="shortcut icon" href="favicon.ico?v=0163">
+    <meta name="cm108-dashboard-version" content="0.1.63">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.59';
+        const CURRENT_DASHBOARD_VERSION = '0.1.63';
         const CHECK_EVERY_MS = 60000;
         let checking = false;
         let reloading = false;
@@ -124,7 +124,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.59 - latest-news sidebar + favicon */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.63 - latest-news sidebar + floating PiP */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -150,6 +150,11 @@
         .fb-monitor-sidebar-status strong { color: #64748b; font-weight: 700; }
         .fb-monitor-collapse-btn { width: 30px; height: 30px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
         .fb-monitor-collapse-btn:hover { background: #f8fafc; color: #2563eb; }
+        .fb-monitor-head-actions { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+        .fb-monitor-float-btn { width: 30px; height: 30px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
+        .fb-monitor-float-btn:hover { background: #dbeafe; color: #1d4ed8; }
+        .fb-monitor-floating-indicator { position: fixed; right: 14px; bottom: 14px; z-index: 79; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #bfdbfe; background: rgba(255,255,255,.96); color: #1d4ed8; border-radius: 999px; padding: 8px 11px; font-size: 10px; font-weight: 800; box-shadow: 0 8px 24px rgba(15,23,42,.12); cursor: pointer; backdrop-filter: blur(8px); }
+        .fb-monitor-floating-indicator:hover { background: #eff6ff; }
         .fb-monitor-sidebar-list-wrap { position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
         .fb-monitor-ticker-viewport {
             min-height: 0;
@@ -817,6 +822,8 @@ const FacebookLatestTicker = () => {
     const [permissionState, setPermissionState] = useState('unknown');
     const [manualConnecting, setManualConnecting] = useState(false);
     const [iosLocalFallback, setIosLocalFallback] = useState(false);
+    const [floatingTarget, setFloatingTarget] = useState(null);
+    const [floatingMode, setFloatingMode] = useState('');
     const [collapsed, setCollapsed] = useState(() => {
         try { return localStorage.getItem('fb_monitor_sidebar_collapsed') === '1'; }
         catch (e) { return false; }
@@ -834,6 +841,7 @@ const FacebookLatestTicker = () => {
     const connectionWarningTimerRef = useRef(null);
     const everConnectedRef = useRef(false);
     const localReturnUrlRef = useRef(getFacebookMonitorReturnUrl());
+    const floatingWindowRef = useRef(null);
     const monitorBase = monitorBaseRef.current;
 
     const normalizeDisplayLimit = (value) => {
@@ -883,6 +891,117 @@ const FacebookLatestTicker = () => {
             try { localStorage.setItem('fb_monitor_sidebar_collapsed', next ? '1' : '0'); } catch (e) { }
             return next;
         });
+    };
+
+    const floatingCss = `
+        * { box-sizing: border-box; }
+        html, body, #fb-monitor-floating-root { width: 100%; height: 100%; margin: 0; }
+        body { font-family: 'Noto Sans Thai', 'Segoe UI', sans-serif; background: #fff; color: #334155; overflow: hidden; }
+        a { color: inherit; text-decoration: none; }
+        button { font: inherit; }
+        .fb-pip-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; background: #fff; }
+        .fb-pip-head { padding: 11px 11px 8px; border-bottom: 1px solid #eef2f7; background: rgba(255,255,255,.98); }
+        .fb-pip-headline { display: flex; align-items: center; gap: 7px; min-width: 0; }
+        .fb-pip-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 8px; background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.12); }
+        .fb-pip-dot.running { background: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
+        .fb-pip-title { min-width: 0; flex: 1; font-size: 14px; line-height: 1.3; font-weight: 800; color: #172033; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fb-pip-close { width: 29px; height: 29px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; color: #64748b; cursor: pointer; font-size: 19px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+        .fb-pip-close:hover { background: #f8fafc; color: #dc2626; }
+        .fb-pip-status { margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; color: #94a3b8; }
+        .fb-pip-status strong { color: #64748b; font-weight: 700; }
+        .fb-pip-mode { color: #2563eb; font-weight: 700; white-space: nowrap; }
+        .fb-pip-list-wrap { min-height: 0; flex: 1; position: relative; display: flex; flex-direction: column; }
+        .fb-pip-viewport { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+        .fb-pip-row { min-height: 62px; display: block; padding: 9px 11px 8px; border-bottom: 1px solid #f1f5f9; position: relative; }
+        .fb-pip-row:hover { background: #f8fbff; }
+        .fb-pip-row.is-latest::before { content: ''; position: absolute; left: 9px; right: 9px; top: 0; height: 2px; background: #ef4444; border-radius: 999px; }
+        .fb-pip-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
+        .fb-pip-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .fb-pip-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 1.2; color: #64748b; }
+        .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .fb-pip-row:hover .fb-pip-row-title { color: #1d4ed8; }
+        .fb-pip-empty { padding: 20px; text-align: center; font-size: 12px; color: #94a3b8; }
+        .fb-pip-new { position: absolute; right: 10px; top: 10px; z-index: 3; border: 0; border-radius: 999px; background: #2563eb; color: #fff; padding: 6px 9px; font-size: 10px; font-weight: 800; box-shadow: 0 5px 16px rgba(37,99,235,.22); cursor: pointer; }
+        .fb-pip-footer { padding: 8px 9px 9px; border-top: 1px solid #eef2f7; background: #fff; }
+        .fb-pip-footer a { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; }
+    `;
+
+    const prepareFloatingDocument = (floatWindow, mode) => {
+        const doc = floatWindow.document;
+        doc.title = 'ข่าวล่าสุดเพจเชียงใหม่';
+        doc.documentElement.lang = 'th';
+        doc.head.innerHTML = '';
+        const meta = doc.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width,initial-scale=1';
+        doc.head.appendChild(meta);
+        const title = doc.createElement('title');
+        title.textContent = 'ข่าวล่าสุดเพจเชียงใหม่';
+        doc.head.appendChild(title);
+        const font = doc.createElement('link');
+        font.rel = 'stylesheet';
+        font.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap';
+        doc.head.appendChild(font);
+        const style = doc.createElement('style');
+        style.textContent = floatingCss;
+        doc.head.appendChild(style);
+        doc.body.innerHTML = '<div id="fb-monitor-floating-root"></div>';
+        doc.body.dataset.mode = mode;
+        return doc.getElementById('fb-monitor-floating-root');
+    };
+
+    const closeFloatingTicker = () => {
+        const floatWindow = floatingWindowRef.current;
+        floatingWindowRef.current = null;
+        setFloatingTarget(null);
+        setFloatingMode('');
+        if (floatWindow && !floatWindow.closed) {
+            try { floatWindow.close(); } catch (e) { }
+        }
+    };
+
+    const openFloatingTicker = async () => {
+        const existing = floatingWindowRef.current;
+        if (existing && !existing.closed) {
+            try { existing.focus(); } catch (e) { }
+            return;
+        }
+        let floatWindow = null;
+        let mode = '';
+        try {
+            if (window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
+                floatWindow = await window.documentPictureInPicture.requestWindow({ width: 420, height: 720 });
+                mode = 'pip';
+            } else {
+                floatWindow = window.open('', 'fbMonitorLatestFloating', 'popup=yes,width=420,height=720,resizable=yes,scrollbars=no');
+                if (!floatWindow) throw new Error('popup-blocked');
+                mode = 'popup';
+            }
+            const target = prepareFloatingDocument(floatWindow, mode);
+            floatingWindowRef.current = floatWindow;
+            setFloatingMode(mode);
+            setFloatingTarget(target);
+            setCollapsed(false);
+            try { localStorage.setItem('fb_monitor_sidebar_collapsed', '0'); } catch (e) { }
+            const onClosed = () => {
+                if (floatingWindowRef.current === floatWindow) {
+                    floatingWindowRef.current = null;
+                    setFloatingTarget(null);
+                    setFloatingMode('');
+                }
+            };
+            floatWindow.addEventListener('pagehide', onClosed, { once: true });
+            floatWindow.addEventListener('unload', onClosed, { once: true });
+            requestAnimationFrame(() => {
+                if (tickerViewportRef.current) tickerViewportRef.current.scrollTop = 0;
+            });
+        } catch (error) {
+            console.warn('เปิดหน้าต่างข่าวล่าสุดแบบ PiP ไม่สำเร็จ', error);
+            if (floatWindow && !floatWindow.closed) {
+                try { floatWindow.close(); } catch (e) { }
+            }
+            alert('เบราว์เซอร์นี้ไม่สามารถเปิดหน้าต่างข่าวล่าสุดแบบ PiP ได้ กรุณาใช้ Chrome หรือ Microsoft Edge รุ่นใหม่');
+        }
     };
 
     // v0.1.49: read the Admin display setting first, then request exactly that
@@ -950,10 +1069,18 @@ const FacebookLatestTicker = () => {
     };
 
     useEffect(() => {
-        const shouldReserveSpace = monitorState.connected && !collapsed;
+        const shouldReserveSpace = monitorState.connected && !collapsed && !floatingTarget;
         document.documentElement.classList.toggle('fb-monitor-sidebar-open', shouldReserveSpace);
         return () => document.documentElement.classList.remove('fb-monitor-sidebar-open');
-    }, [monitorState.connected, collapsed]);
+    }, [monitorState.connected, collapsed, floatingTarget]);
+
+    useEffect(() => () => {
+        const floatWindow = floatingWindowRef.current;
+        floatingWindowRef.current = null;
+        if (floatWindow && !floatWindow.closed) {
+            try { floatWindow.close(); } catch (e) { }
+        }
+    }, []);
 
     useEffect(() => {
         let alive = true;
@@ -1236,7 +1363,26 @@ const FacebookLatestTicker = () => {
     const statusCopy = `อัปเดตทุก ${monitorState.checkIntervalMinutes || 10} นาที ล่าสุด ${lastUpdateLabel}`;
     const dotClass = monitorState.running ? 'running' : 'online';
 
-    return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
+    const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
+        const itemKey = getItemKey(item);
+        const isLatest = itemKey === latestKey;
+        const source = item.page_name || item.source || item.page || '';
+        return React.createElement('a', {
+            key: itemKey,
+            href: item.url || item.permalink,
+            target: '_blank',
+            rel: 'noopener',
+            className: `${rowClass} ${isLatest ? 'is-latest' : ''}`
+        },
+            React.createElement('div', { className: metaClass },
+                React.createElement('span', { className: timeClass }, formatFacebookMonitorTime(item.published_at)),
+                source && React.createElement('span', { className: sourceClass }, source)
+            ),
+            React.createElement('div', { className: titleClass }, item.headline || '(ไม่มีหัวข้อ)')
+        );
+    }) : null;
+
+    const sidebar = !floatingTarget && React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
         React.createElement('button', {
             type: 'button',
             className: 'fb-monitor-collapsed-tab',
@@ -1252,12 +1398,20 @@ const FacebookLatestTicker = () => {
                 React.createElement('div', { className: 'fb-monitor-sidebar-headline' },
                     React.createElement('span', { className: `fb-monitor-dot ${dotClass}` }),
                     React.createElement('div', { className: 'fb-monitor-sidebar-title-text' }, latestTitle),
-                    React.createElement('button', {
-                        type: 'button',
-                        className: 'fb-monitor-collapse-btn',
-                        onClick: toggleCollapsed,
-                        title: 'หุบแถบข่าวล่าสุด'
-                    }, React.createElement(Icon, { name: 'chevron-right', size: 16 }))
+                    React.createElement('div', { className: 'fb-monitor-head-actions' },
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'fb-monitor-float-btn',
+                            onClick: openFloatingTicker,
+                            title: 'ลอยข่าวล่าสุดบนจอแบบ PiP'
+                        }, React.createElement(Icon, { name: 'picture-in-picture-2', size: 16 })),
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'fb-monitor-collapse-btn',
+                            onClick: toggleCollapsed,
+                            title: 'หุบแถบข่าวล่าสุด'
+                        }, React.createElement(Icon, { name: 'chevron-right', size: 16 }))
+                    )
                 ),
                 React.createElement('div', { className: 'fb-monitor-sidebar-status' },
                     React.createElement('span', null, ''),
@@ -1275,24 +1429,9 @@ const FacebookLatestTicker = () => {
                     onScroll: handleTickerScroll,
                     title: 'เลื่อนลงเพื่อดูข่าวเก่า — ข่าวใหม่ล่าสุดอยู่ด้านบน'
                 },
-                    React.createElement('div', { className: 'fb-monitor-ticker-track' }, playItems.length ? playItems.map(item => {
-                        const itemKey = getItemKey(item);
-                        const isLatest = itemKey === latestKey;
-                        const source = item.page_name || item.source || item.page || '';
-                        return React.createElement('a', {
-                            key: itemKey,
-                            href: item.url || item.permalink,
-                            target: '_blank',
-                            rel: 'noopener',
-                            className: `fb-monitor-ticker-row ${isLatest ? 'is-latest' : ''}`
-                        },
-                            React.createElement('div', { className: 'fb-monitor-row-meta' },
-                                React.createElement('span', { className: 'fb-monitor-row-time' }, formatFacebookMonitorTime(item.published_at)),
-                                source && React.createElement('span', { className: 'fb-monitor-row-source' }, source)
-                            ),
-                            React.createElement('div', { className: 'fb-monitor-row-title' }, item.headline || '(ไม่มีหัวข้อ)')
-                        );
-                    }) : React.createElement('div', { className: 'p-5 text-center text-xs text-gray-400' }, 'ยังไม่มีข่าวล่าสุด'))
+                    React.createElement('div', { className: 'fb-monitor-ticker-track' },
+                        renderNewsRows('fb-monitor-ticker-row', 'fb-monitor-row-meta', 'fb-monitor-row-time', 'fb-monitor-row-source', 'fb-monitor-row-title') || React.createElement('div', { className: 'p-5 text-center text-xs text-gray-400' }, 'ยังไม่มีข่าวล่าสุด')
+                    )
                 ),
                 pendingNewCount > 0 && browsingOlder && React.createElement('button', {
                     type: 'button',
@@ -1317,6 +1456,55 @@ const FacebookLatestTicker = () => {
             )
         )
     );
+
+    const floatingPortal = floatingTarget && ReactDOM.createPortal(
+        React.createElement('div', { className: 'fb-pip-shell' },
+            React.createElement('div', { className: 'fb-pip-head' },
+                React.createElement('div', { className: 'fb-pip-headline' },
+                    React.createElement('span', { className: `fb-pip-dot ${monitorState.running ? 'running' : ''}` }),
+                    React.createElement('div', { className: 'fb-pip-title' }, latestTitle),
+                    React.createElement('button', { type: 'button', className: 'fb-pip-close', onClick: closeFloatingTicker, title: 'กลับเข้าแถบด้านขวา' }, '×')
+                ),
+                React.createElement('div', { className: 'fb-pip-status' },
+                    React.createElement('span', { className: 'fb-pip-mode' }, floatingMode === 'pip' ? 'PiP · ลอยบนจอ' : 'หน้าต่างแยก'),
+                    React.createElement('strong', null, statusCopy)
+                )
+            ),
+            React.createElement('div', { className: 'fb-pip-list-wrap' },
+                React.createElement('div', {
+                    ref: tickerViewportRef,
+                    className: 'fb-pip-viewport',
+                    onWheel: noteUserInteraction,
+                    onTouchStart: noteUserInteraction,
+                    onPointerDown: noteUserInteraction,
+                    onScroll: handleTickerScroll,
+                    title: 'เลื่อนลงเพื่อดูข่าวเก่า — ข่าวใหม่ล่าสุดอยู่ด้านบน'
+                },
+                    renderNewsRows('fb-pip-row', 'fb-pip-meta', 'fb-pip-time', 'fb-pip-source', 'fb-pip-row-title') || React.createElement('div', { className: 'fb-pip-empty' }, 'ยังไม่มีข่าวล่าสุด')
+                ),
+                pendingNewCount > 0 && browsingOlder && React.createElement('button', { type: 'button', className: 'fb-pip-new', onClick: () => scrollToLatest('smooth') }, `↑ มีข่าวใหม่ ${pendingNewCount} ข่าว`)
+            ),
+            React.createElement('div', { className: 'fb-pip-footer' },
+                React.createElement('a', { href: monitorBase || '#', target: '_blank', rel: 'noopener' }, 'ดูข่าวทั้งหมด ↗')
+            )
+        ),
+        floatingTarget
+    );
+
+    return React.createElement(React.Fragment, null,
+        sidebar,
+        floatingTarget && React.createElement('button', {
+            type: 'button',
+            className: 'fb-monitor-floating-indicator',
+            onClick: closeFloatingTicker,
+            title: 'ปิดหน้าต่างลอยและนำข่าวกลับเข้าแถบด้านขวา'
+        },
+            React.createElement(Icon, { name: 'picture-in-picture-2', size: 14 }),
+            React.createElement('span', null, 'ข่าวล่าสุดกำลังลอย · กลับเข้าแถบ')
+        ),
+        floatingPortal
+    );
+
 };
 
 // --- Main App ---
