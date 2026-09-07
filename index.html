@@ -4,18 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0164">
-    <link rel="shortcut icon" href="favicon.ico?v=0164">
-    <meta name="cm108-dashboard-version" content="0.1.64">
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0165">
+    <link rel="shortcut icon" href="favicon.ico?v=0165">
+    <meta name="cm108-dashboard-version" content="0.1.65">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.64';
+        const CURRENT_DASHBOARD_VERSION = '0.1.65';
         const CHECK_EVERY_MS = 60000;
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
         let reloading = false;
-        let baselineFingerprint = null;
 
-        // Remove our temporary cache-busting parameter after a forced reload.
+        // Remove only our temporary cache-busting parameter after a forced reload.
         try {
             const clean = new URL(location.href);
             if (clean.searchParams.has('__cm108_reload')) {
@@ -24,56 +24,61 @@
             }
         } catch (e) {}
 
-        const forceLatestReload = () => {
-            if (reloading) return;
+        const getReloadAttempt = () => {
+            try { return sessionStorage.getItem(RELOAD_ATTEMPT_KEY) || ''; }
+            catch (e) { return ''; }
+        };
+
+        const setReloadAttempt = (version) => {
+            try { sessionStorage.setItem(RELOAD_ATTEMPT_KEY, String(version || '')); }
+            catch (e) {}
+        };
+
+        const clearReloadAttempt = () => {
+            try { sessionStorage.removeItem(RELOAD_ATTEMPT_KEY); }
+            catch (e) {}
+        };
+
+        const forceLatestReloadOnce = (remoteVersion) => {
+            if (reloading || !remoteVersion) return;
+
+            // Important: never enter an infinite reload loop if GitHub serves
+            // dashboard-version.json before the matching index.html is available.
+            if (getReloadAttempt() === remoteVersion) return;
+            setReloadAttempt(remoteVersion);
+
             reloading = true;
             const next = new URL(location.href);
-            next.searchParams.delete('__cm108_versioncheck');
             next.searchParams.set('__cm108_reload', String(Date.now()));
             location.replace(next.toString());
-        };
-
-        const checkTinyVersionFile = async () => {
-            try {
-                const url = new URL('dashboard-version.json', location.href);
-                url.searchParams.set('_', String(Date.now()));
-                const response = await fetch(url.toString(), { cache: 'no-store', credentials: 'same-origin' });
-                if (!response.ok) return false;
-                const data = await response.json();
-                const remote = String(data && data.version || '').trim();
-                if (remote && remote !== CURRENT_DASHBOARD_VERSION) forceLatestReload();
-                return Boolean(remote);
-            } catch (e) {
-                return false;
-            }
-        };
-
-        // Single-file fallback: GitHub Pages normally exposes ETag/Last-Modified
-        // on HEAD requests, so even without dashboard-version.json an open tab
-        // can notice that index.html changed without downloading the whole file.
-        const checkHtmlFingerprint = async () => {
-            try {
-                const url = new URL(location.href);
-                url.searchParams.set('__cm108_versioncheck', String(Date.now()));
-                const response = await fetch(url.toString(), { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' });
-                if (!response.ok) return;
-                const fingerprint = response.headers.get('etag') ||
-                    [response.headers.get('last-modified'), response.headers.get('content-length')].filter(Boolean).join('|');
-                if (!fingerprint) return;
-                if (baselineFingerprint === null) {
-                    baselineFingerprint = fingerprint;
-                } else if (fingerprint !== baselineFingerprint) {
-                    forceLatestReload();
-                }
-            } catch (e) {}
         };
 
         const checkForDashboardUpdate = async () => {
             if (checking || reloading) return;
             checking = true;
             try {
-                const hasVersionFile = await checkTinyVersionFile();
-                if (!hasVersionFile && !reloading) await checkHtmlFingerprint();
+                const url = new URL('dashboard-version.json', location.href);
+                url.searchParams.set('_', String(Date.now()));
+                const response = await fetch(url.toString(), {
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const remote = String(data && data.version || '').trim();
+                if (!remote) return;
+
+                if (remote === CURRENT_DASHBOARD_VERSION) {
+                    clearReloadAttempt();
+                    return;
+                }
+
+                forceLatestReloadOnce(remote);
+            } catch (e) {
+                // No fallback reload here. If the version file is temporarily
+                // unavailable, leaving the current dashboard open is safer than
+                // repeatedly refreshing the page.
             } finally {
                 checking = false;
             }
@@ -124,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.64 - latest-news sidebar + floating PiP */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.65 - latest-news sidebar + floating PiP + read-state */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -167,8 +172,10 @@
             background: #fff;
         }
         .fb-monitor-ticker-track { min-width: 0; }
-        .fb-monitor-ticker-row { min-height: 62px; display: block; min-width: 0; padding: 9px 12px 8px; border-bottom: 1px solid #f1f5f9; position: relative; transition: background .12s ease; }
+        .fb-monitor-ticker-row { min-height: 62px; display: block; min-width: 0; padding: 9px 12px 8px; border-bottom: 1px solid #f1f5f9; position: relative; transition: background .12s ease, color .12s ease; }
         .fb-monitor-ticker-row:hover { background: #f8fbff; }
+        .fb-monitor-ticker-row.is-read { background: #eef2f7; }
+        .fb-monitor-ticker-row.is-read:hover { background: #e2e8f0; }
         .fb-monitor-ticker-row.is-latest::before {
             content: '';
             position: absolute;
@@ -185,6 +192,9 @@
         .fb-monitor-row-source { font-size: 10px; line-height: 1.2; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
         .fb-monitor-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .fb-monitor-ticker-row:hover .fb-monitor-row-title { color: #1d4ed8; }
+        .fb-monitor-ticker-row.is-read .fb-monitor-row-title { color: #64748b; font-weight: 550; }
+        .fb-monitor-ticker-row.is-read:hover .fb-monitor-row-title { color: #475569; }
+        .fb-monitor-read-badge { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; border-radius: 999px; background: #cbd5e1; color: #475569; padding: 2px 6px; font-size: 9px; line-height: 1.2; font-weight: 800; white-space: nowrap; }
         .fb-monitor-new-badge {
             position: absolute;
             left: 50%;
@@ -809,6 +819,26 @@ const formatFacebookMonitorTime = (value) => {
         return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     return d.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
+const FB_MONITOR_READ_STORAGE_KEY = 'fb_monitor_read_news_v1';
+const FB_MONITOR_READ_STORAGE_MAX = 600;
+const loadFacebookMonitorReadKeys = () => {
+    try {
+        const raw = JSON.parse(localStorage.getItem(FB_MONITOR_READ_STORAGE_KEY) || '[]');
+        if (!Array.isArray(raw)) return new Set();
+        return new Set(raw.map(String).filter(Boolean).slice(-FB_MONITOR_READ_STORAGE_MAX));
+    } catch (e) {
+        return new Set();
+    }
+};
+const saveFacebookMonitorReadKeys = (keys) => {
+    try {
+        const compact = Array.from(keys).map(String).filter(Boolean).slice(-FB_MONITOR_READ_STORAGE_MAX);
+        localStorage.setItem(FB_MONITOR_READ_STORAGE_KEY, JSON.stringify(compact));
+        return new Set(compact);
+    } catch (e) {
+        return new Set(Array.from(keys).slice(-FB_MONITOR_READ_STORAGE_MAX));
+    }
+};
 const FacebookLatestTicker = () => {
     const [playItems, setPlayItems] = useState([]);
     const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 20 });
@@ -824,6 +854,7 @@ const FacebookLatestTicker = () => {
     const [iosLocalFallback, setIosLocalFallback] = useState(false);
     const [floatingTarget, setFloatingTarget] = useState(null);
     const [floatingMode, setFloatingMode] = useState('');
+    const [readItemKeys, setReadItemKeys] = useState(() => loadFacebookMonitorReadKeys());
     const [collapsed, setCollapsed] = useState(() => {
         try { return localStorage.getItem('fb_monitor_sidebar_collapsed') === '1'; }
         catch (e) { return false; }
@@ -892,6 +923,25 @@ const FacebookLatestTicker = () => {
             return next;
         });
     };
+    const markItemRead = (itemKey) => {
+        const key = String(itemKey || '');
+        if (!key) return;
+        setReadItemKeys(prev => {
+            if (prev.has(key)) return prev;
+            const next = new Set(prev);
+            next.add(key);
+            return saveFacebookMonitorReadKeys(next);
+        });
+    };
+
+    useEffect(() => {
+        const syncReadState = (event) => {
+            if (event.key === FB_MONITOR_READ_STORAGE_KEY)
+                setReadItemKeys(loadFacebookMonitorReadKeys());
+        };
+        window.addEventListener('storage', syncReadState);
+        return () => window.removeEventListener('storage', syncReadState);
+    }, []);
 
     const floatingCss = `
         * { box-sizing: border-box; }
@@ -912,14 +962,19 @@ const FacebookLatestTicker = () => {
         .fb-pip-mode { color: #2563eb; font-weight: 700; white-space: nowrap; }
         .fb-pip-list-wrap { min-height: 0; flex: 1; position: relative; display: flex; flex-direction: column; }
         .fb-pip-viewport { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
-        .fb-pip-row { min-height: 62px; display: block; padding: 9px 11px 8px; border-bottom: 1px solid #f1f5f9; position: relative; }
+        .fb-pip-row { min-height: 62px; display: block; padding: 9px 11px 8px; border-bottom: 1px solid #f1f5f9; position: relative; transition: background .12s ease, color .12s ease; }
         .fb-pip-row:hover { background: #f8fbff; }
+        .fb-pip-row.is-read { background: #eef2f7; }
+        .fb-pip-row.is-read:hover { background: #e2e8f0; }
         .fb-pip-row.is-latest::before { content: ''; position: absolute; left: 9px; right: 9px; top: 0; height: 2px; background: #ef4444; border-radius: 999px; }
         .fb-pip-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
         .fb-pip-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .fb-pip-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 1.2; color: #64748b; }
         .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .fb-pip-row:hover .fb-pip-row-title { color: #1d4ed8; }
+        .fb-pip-row.is-read .fb-pip-row-title { color: #64748b; font-weight: 550; }
+        .fb-pip-row.is-read:hover .fb-pip-row-title { color: #475569; }
+        .fb-pip-read-badge { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; border-radius: 999px; background: #cbd5e1; color: #475569; padding: 2px 6px; font-size: 9px; line-height: 1.2; font-weight: 800; white-space: nowrap; }
         .fb-pip-empty { padding: 20px; text-align: center; font-size: 12px; color: #94a3b8; }
         .fb-pip-new { position: absolute; right: 10px; top: 10px; z-index: 3; border: 0; border-radius: 999px; background: #2563eb; color: #fff; padding: 6px 9px; font-size: 10px; font-weight: 800; box-shadow: 0 5px 16px rgba(37,99,235,.22); cursor: pointer; }
         .fb-pip-footer { padding: 8px 9px 9px; border-top: 1px solid #eef2f7; background: #fff; }
@@ -1366,17 +1421,22 @@ const FacebookLatestTicker = () => {
     const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
         const itemKey = getItemKey(item);
         const isLatest = itemKey === latestKey;
+        const isRead = readItemKeys.has(itemKey);
         const source = item.page_name || item.source || item.page || '';
+        const readBadgeClass = rowClass === 'fb-pip-row' ? 'fb-pip-read-badge' : 'fb-monitor-read-badge';
         return React.createElement('a', {
             key: itemKey,
             href: item.url || item.permalink,
             target: '_blank',
             rel: 'noopener',
-            className: `${rowClass} ${isLatest ? 'is-latest' : ''}`
+            onClick: () => markItemRead(itemKey),
+            onAuxClick: (event) => { if (event.button === 1) markItemRead(itemKey); },
+            className: `${rowClass} ${isLatest ? 'is-latest' : ''} ${isRead ? 'is-read' : ''}`
         },
             React.createElement('div', { className: metaClass },
                 React.createElement('span', { className: timeClass }, formatFacebookMonitorTime(item.published_at)),
-                source && React.createElement('span', { className: sourceClass }, source)
+                source && React.createElement('span', { className: sourceClass }, source),
+                isRead && React.createElement('span', { className: readBadgeClass, title: 'เปิดอ่านข่าวนี้แล้ว' }, '✓ อ่านแล้ว')
             ),
             React.createElement('div', { className: titleClass }, item.headline || '(ไม่มีหัวข้อ)')
         );
