@@ -4,6 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
+    <meta name="cm108-dashboard-version" content="0.1.51">
+    <script>
+    (() => {
+        const CURRENT_DASHBOARD_VERSION = '0.1.51';
+        const CHECK_EVERY_MS = 60000;
+        let checking = false;
+        let reloading = false;
+        let baselineFingerprint = null;
+
+        // Remove our temporary cache-busting parameter after a forced reload.
+        try {
+            const clean = new URL(location.href);
+            if (clean.searchParams.has('__cm108_reload')) {
+                clean.searchParams.delete('__cm108_reload');
+                history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+            }
+        } catch (e) {}
+
+        const forceLatestReload = () => {
+            if (reloading) return;
+            reloading = true;
+            const next = new URL(location.href);
+            next.searchParams.delete('__cm108_versioncheck');
+            next.searchParams.set('__cm108_reload', String(Date.now()));
+            location.replace(next.toString());
+        };
+
+        const checkTinyVersionFile = async () => {
+            try {
+                const url = new URL('dashboard-version.json', location.href);
+                url.searchParams.set('_', String(Date.now()));
+                const response = await fetch(url.toString(), { cache: 'no-store', credentials: 'same-origin' });
+                if (!response.ok) return false;
+                const data = await response.json();
+                const remote = String(data && data.version || '').trim();
+                if (remote && remote !== CURRENT_DASHBOARD_VERSION) forceLatestReload();
+                return Boolean(remote);
+            } catch (e) {
+                return false;
+            }
+        };
+
+        // Single-file fallback: GitHub Pages normally exposes ETag/Last-Modified
+        // on HEAD requests, so even without dashboard-version.json an open tab
+        // can notice that index.html changed without downloading the whole file.
+        const checkHtmlFingerprint = async () => {
+            try {
+                const url = new URL(location.href);
+                url.searchParams.set('__cm108_versioncheck', String(Date.now()));
+                const response = await fetch(url.toString(), { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' });
+                if (!response.ok) return;
+                const fingerprint = response.headers.get('etag') ||
+                    [response.headers.get('last-modified'), response.headers.get('content-length')].filter(Boolean).join('|');
+                if (!fingerprint) return;
+                if (baselineFingerprint === null) {
+                    baselineFingerprint = fingerprint;
+                } else if (fingerprint !== baselineFingerprint) {
+                    forceLatestReload();
+                }
+            } catch (e) {}
+        };
+
+        const checkForDashboardUpdate = async () => {
+            if (checking || reloading) return;
+            checking = true;
+            try {
+                const hasVersionFile = await checkTinyVersionFile();
+                if (!hasVersionFile && !reloading) await checkHtmlFingerprint();
+            } finally {
+                checking = false;
+            }
+        };
+
+        setTimeout(checkForDashboardUpdate, 8000);
+        setInterval(checkForDashboardUpdate, CHECK_EVERY_MS);
+        window.addEventListener('focus', checkForDashboardUpdate);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) checkForDashboardUpdate();
+        });
+    })();
+    </script>
     
     <!-- Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -41,7 +122,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.43 - collapsed latest-news tab at bottom-right */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.51 - latest-news sidebar + auto update */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -681,9 +762,8 @@ const formatFacebookMonitorTime = (value) => {
     return d.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 const FacebookLatestTicker = () => {
-    const MAX_LATEST_ITEMS = 20;
     const [playItems, setPlayItems] = useState([]);
-    const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, updatedAt: null });
+    const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 20 });
     const [showUpdateNotice, setShowUpdateNotice] = useState(false);
     const [pendingNewCount, setPendingNewCount] = useState(0);
     const [browsingOlder, setBrowsingOlder] = useState(false);
@@ -701,6 +781,7 @@ const FacebookLatestTicker = () => {
     const knownItemIdsRef = useRef(new Set());
     const initializedRef = useRef(false);
     const lastUpdatedAtRef = useRef(null);
+    const displayLimitRef = useRef(null);
     const updateNoticeTimerRef = useRef(null);
     const tickerViewportRef = useRef(null);
     const userInteractionAtRef = useRef(0);
@@ -710,6 +791,11 @@ const FacebookLatestTicker = () => {
     const everConnectedRef = useRef(false);
     const monitorBase = monitorBaseRef.current;
 
+    const normalizeDisplayLimit = (value) => {
+        const n = Number(value);
+        return [0, 10, 20, 30].includes(n) ? n : 20;
+    };
+    const applyDisplayLimit = (items, limit) => limit === 0 ? items : items.slice(0, limit);
     const getItemKey = (item) => String(item?.id || item?.url || item?.permalink || `${item?.published_at || ''}|${item?.headline || ''}`);
     const isViewportAtLatest = () => {
         const viewport = tickerViewportRef.current;
@@ -754,6 +840,51 @@ const FacebookLatestTicker = () => {
         });
     };
 
+    // v0.1.49: read the Admin display setting first, then request exactly that
+    // amount of news. This makes 10/20/30/all authoritative and avoids any
+    // stale/default LIMIT in /api/public/latest forcing the sidebar to 20.
+    const fetchMonitorSnapshot = async (timeoutMs) => {
+        let publicConfig = null;
+        try {
+            const cfgResponse = await fetchFacebookMonitor(`${monitorBase}/api/public/config`, timeoutMs);
+            if (cfgResponse.ok) publicConfig = await cfgResponse.json();
+        } catch (e) {
+            // Older Monitor versions do not have /api/public/config. Fall back
+            // to the backward-compatible latest endpoint below.
+        }
+
+        if (publicConfig && publicConfig.display_limit !== undefined && publicConfig.display_limit !== null) {
+            const wanted = normalizeDisplayLimit(publicConfig.display_limit);
+            const latestUrl = wanted === 0
+                ? `${monitorBase}/api/public/latest`
+                : `${monitorBase}/api/public/latest?limit=${wanted}`;
+            const response = await fetchFacebookMonitor(latestUrl, timeoutMs);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const latestData = await response.json();
+            return {
+                ...latestData,
+                display_limit: wanted,
+                check_interval_minutes: publicConfig.check_interval_minutes ?? latestData.check_interval_minutes,
+                history_hours: publicConfig.history_hours ?? latestData.history_hours,
+                monitor_version: publicConfig.version || latestData.version || null
+            };
+        }
+
+        let response = await fetchFacebookMonitor(`${monitorBase}/api/public/latest`, timeoutMs);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let data = await response.json();
+        if (data.display_limit === undefined || data.display_limit === null) {
+            const legacyResponse = await fetchFacebookMonitor(`${monitorBase}/api/public/latest?limit=20`, timeoutMs);
+            if (legacyResponse.ok) {
+                const legacyData = await legacyResponse.json();
+                data = { ...legacyData, display_limit: 20 };
+            } else {
+                data = { ...data, display_limit: 20 };
+            }
+        }
+        return data;
+    };
+
     useEffect(() => {
         const shouldReserveSpace = monitorState.connected && !collapsed;
         document.documentElement.classList.toggle('fb-monitor-sidebar-open', shouldReserveSpace);
@@ -770,7 +901,7 @@ const FacebookLatestTicker = () => {
         }
         const loadLatest = async () => {
             if (!monitorBase) {
-                setMonitorState({ loading: false, connected: false, running: false, updatedAt: null });
+                setMonitorState({ loading: false, connected: false, running: false, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 20 });
                 return;
             }
             try {
@@ -778,14 +909,14 @@ const FacebookLatestTicker = () => {
                 if (alive) setPermissionState(pstate);
                 // v0.1.43: รอบแรกเผื่อเวลาให้ผู้ใช้กด Allow ที่ Local Network Access
                 // เดิม 3.5 วินาทีสั้นเกินไปและอาจตัด request ระหว่าง permission prompt
-                const response = await fetchFacebookMonitor(`${monitorBase}/api/public/latest?limit=30`, initializedRef.current ? 8000 : 25000);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
+                const data = await fetchMonitorSnapshot(initializedRef.current ? 8000 : 25000);
                 if (!alive) return;
 
-                // API เรียงใหม่ -> เก่า ดังนั้นรายการด้านขวาจะให้ข่าวล่าสุดอยู่บนสุดเสมอ
-                const nextItems = (Array.isArray(data.items) ? data.items : []).slice(0, MAX_LATEST_ITEMS);
+                // API เรียงใหม่ -> เก่า และจำนวนข่าวใช้ค่าจากฝั่ง Admin (10/20/30/ทั้งหมด)
+                const nextDisplayLimit = normalizeDisplayLimit(data.display_limit);
+                const nextItems = applyDisplayLimit(Array.isArray(data.items) ? data.items : [], nextDisplayLimit);
                 const nextUpdatedAt = data.updated_at || null;
+                const nextInterval = Math.max(1, Number(data.check_interval_minutes) || 10);
                 if (connectionWarningTimerRef.current) {
                     clearTimeout(connectionWarningTimerRef.current);
                     connectionWarningTimerRef.current = null;
@@ -795,7 +926,7 @@ const FacebookLatestTicker = () => {
                 getFacebookMonitorPermissionState().then(state => { if (alive) setPermissionState(state); }).catch(() => {});
                 setShowConnectionWarning(false);
                 setShowWarningDetails(false);
-                setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: nextUpdatedAt });
+                setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: nextUpdatedAt, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit });
 
                 if (nextUpdatedAt && nextUpdatedAt !== lastUpdatedAtRef.current) {
                     lastUpdatedAtRef.current = nextUpdatedAt;
@@ -809,7 +940,22 @@ const FacebookLatestTicker = () => {
 
                 if (!initializedRef.current) {
                     initializedRef.current = true;
+                    displayLimitRef.current = nextDisplayLimit;
                     knownItemIdsRef.current = new Set(nextItems.map(getItemKey));
+                    setPlayItems(nextItems);
+                    requestAnimationFrame(() => {
+                        if (tickerViewportRef.current) tickerViewportRef.current.scrollTop = 0;
+                    });
+                    return;
+                }
+
+                // ถ้า Admin เปลี่ยน 10/20/30/ทั้งหมด รายการเก่าที่เพิ่งถูกเปิดให้เห็น
+                // ไม่ควรถูกนับเป็น “ข่าวใหม่”
+                if (displayLimitRef.current !== nextDisplayLimit) {
+                    displayLimitRef.current = nextDisplayLimit;
+                    knownItemIdsRef.current = new Set(nextItems.map(getItemKey));
+                    setPendingCount(0);
+                    setBrowsingState(false);
                     setPlayItems(nextItems);
                     requestAnimationFrame(() => {
                         if (tickerViewportRef.current) tickerViewportRef.current.scrollTop = 0;
@@ -827,7 +973,7 @@ const FacebookLatestTicker = () => {
                     setPlayItems(nextItems);
                     if (wasBrowsingOlder) {
                         setBrowsingState(true);
-                        setPendingCount(prev => Math.min(MAX_LATEST_ITEMS, prev + freshItems.length));
+                        setPendingCount(prev => nextDisplayLimit === 0 ? prev + freshItems.length : Math.min(nextDisplayLimit, prev + freshItems.length));
                         // เพิ่มข่าวใหม่ไว้ด้านบน แต่รักษาตำแหน่งข่าวเก่าที่ผู้ใช้กำลังอ่านอยู่
                         requestAnimationFrame(() => {
                             const v = tickerViewportRef.current;
@@ -878,14 +1024,15 @@ const FacebookLatestTicker = () => {
         if (!monitorBase || manualConnecting) return;
         setManualConnecting(true);
         try {
-            const response = await fetchFacebookMonitor(`${monitorBase}/api/public/latest?limit=30`, 30000);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            const nextItems = (Array.isArray(data.items) ? data.items : []).slice(0, MAX_LATEST_ITEMS);
+            const data = await fetchMonitorSnapshot(30000);
+            const nextDisplayLimit = normalizeDisplayLimit(data.display_limit);
+            const nextItems = applyDisplayLimit(Array.isArray(data.items) ? data.items : [], nextDisplayLimit);
+            const nextInterval = Math.max(1, Number(data.check_interval_minutes) || 10);
             initializedRef.current = true;
+            displayLimitRef.current = nextDisplayLimit;
             knownItemIdsRef.current = new Set(nextItems.map(getItemKey));
             setPlayItems(nextItems);
-            setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: data.updated_at || null });
+            setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: data.updated_at || null, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit });
             setHasConnectedThisSession(true);
             everConnectedRef.current = true;
             setShowConnectionWarning(false);
@@ -954,9 +1101,11 @@ const FacebookLatestTicker = () => {
     }
 
     const latestKey = playItems.length ? getItemKey(playItems[0]) : '';
-    const statusCopy = showUpdateNotice && monitorState.updatedAt
-        ? `อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)}`
-        : (monitorState.running ? 'กำลังอัปเดต' : 'พร้อมใช้งาน');
+    const displayLimit = normalizeDisplayLimit(monitorState.displayLimit);
+    const latestCountLabel = displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมด' : `${displayLimit} ข่าวล่าสุด`;
+    const latestTitle = displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${displayLimit} ข่าวล่าสุดเพจเชียงใหม่`;
+    const lastUpdateLabel = monitorState.updatedAt ? `${formatFacebookMonitorTime(monitorState.updatedAt)} น.` : '-';
+    const statusCopy = `อัปเดตทุก ${monitorState.checkIntervalMinutes || 10} นาที ล่าสุด ${lastUpdateLabel}`;
     const dotClass = monitorState.running ? 'running' : 'online';
 
     return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
@@ -964,17 +1113,17 @@ const FacebookLatestTicker = () => {
             type: 'button',
             className: 'fb-monitor-collapsed-tab',
             onClick: toggleCollapsed,
-            title: 'ขยาย 20 ข่าวล่าสุดเพจเชียงใหม่'
+            title: `ขยาย ${latestTitle}`
         },
             React.createElement(Icon, { name: 'chevron-left', size: 16 }),
-            React.createElement('span', null, '20 ข่าวล่าสุด'),
+            React.createElement('span', null, latestCountLabel),
             React.createElement('span', { className: 'fb-monitor-mobile-label' }, 'เพจเชียงใหม่')
         ),
         React.createElement('div', { className: 'fb-monitor-expanded flex flex-col min-h-0 h-full' },
             React.createElement('div', { className: 'fb-monitor-sidebar-head' },
                 React.createElement('div', { className: 'fb-monitor-sidebar-headline' },
                     React.createElement('span', { className: `fb-monitor-dot ${dotClass}` }),
-                    React.createElement('div', { className: 'fb-monitor-sidebar-title-text' }, '20 ข่าวล่าสุดเพจเชียงใหม่'),
+                    React.createElement('div', { className: 'fb-monitor-sidebar-title-text' }, latestTitle),
                     React.createElement('button', {
                         type: 'button',
                         className: 'fb-monitor-collapse-btn',
