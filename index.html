@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
-    <meta name="cm108-dashboard-version" content="0.1.51">
+    <meta name="cm108-dashboard-version" content="0.1.54">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.51';
+        const CURRENT_DASHBOARD_VERSION = '0.1.54';
         const CHECK_EVERY_MS = 60000;
         let checking = false;
         let reloading = false;
@@ -221,6 +221,8 @@
         .fb-monitor-warning-btn:hover { background: #ffedd5; }
         .fb-monitor-warning-btn.primary { background: #ea580c; color: #fff; border-color: #ea580c; }
         .fb-monitor-warning-btn.primary:hover { background: #c2410c; }
+        .fb-monitor-ios-local-link { text-decoration: none; border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+        .fb-monitor-ios-local-link:hover { background: #dbeafe; }
         .fb-monitor-mobile-label { display: none; }
         .fb-monitor-desktop-label { display: inline; }
         @media (max-width: 1099px) {
@@ -705,6 +707,33 @@ const searchAllExistingNews = async (rawQuery) => {
 // ค่าเริ่มต้นของเครื่อง Admin ในวง LAN (เปลี่ยนได้จากปุ่ม "ตั้งค่า IP" เมื่อเชื่อมต่อไม่ได้)
 const FB_MONITOR_URL = 'http://192.168.1.102:8787';
 const FB_MONITOR_OLD_DEFAULT_URL = 'http://192.168.1.7:8787';
+const FB_MONITOR_IS_APPLE_MOBILE = (() => {
+    const ua = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+    return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+})();
+const FB_MONITOR_IS_LOCAL_DASHBOARD = window.location.port === '8787';
+const FB_MONITOR_IS_IOS_GITHUB = FB_MONITOR_IS_APPLE_MOBILE && !FB_MONITOR_IS_LOCAL_DASHBOARD && window.location.protocol === 'https:';
+const getFacebookMonitorReturnUrl = () => {
+    if (!FB_MONITOR_IS_LOCAL_DASHBOARD) return '';
+    try {
+        const value = new URLSearchParams(window.location.search).get('__cm108_return');
+        if (!value) return '';
+        const u = new URL(value);
+        return u.protocol === 'https:' ? u.toString() : '';
+    } catch (e) { return ''; }
+};
+const buildFacebookMonitorLocalDashboardUrl = (monitorBase) => {
+    try {
+        const u = new URL('/daily-news', monitorBase || FB_MONITOR_URL);
+        if (!FB_MONITOR_IS_LOCAL_DASHBOARD && window.location.protocol === 'https:') {
+            u.searchParams.set('__cm108_return', window.location.href);
+        }
+        return u.toString();
+    } catch (e) {
+        return `${String(monitorBase || FB_MONITOR_URL).replace(/\/$/, '')}/daily-news`;
+    }
+};
 const getFacebookMonitorBase = () => {
     // ถ้าหน้านี้ถูกเปิดจาก Monitor โดยตรง ให้ใช้ IP/Host ปัจจุบันเสมอ
     if (window.location.port === '8787')
@@ -739,11 +768,15 @@ const fetchFacebookMonitor = async (url, timeoutMs = 20000) => {
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        return await fetch(url, {
-            cache: 'no-store',
-            signal: controller.signal,
-            targetAddressSpace: 'local'
-        });
+        const options = { cache: 'no-store', signal: controller.signal };
+        // Chromium uses targetAddressSpace for Local Network Access. Safari/iOS
+        // does not follow the same flow; passing it there only makes diagnosis
+        // harder. On iOS we make a plain probe, then hand off to the local page
+        // only when the probe actually succeeds.
+        if (!FB_MONITOR_IS_IOS_GITHUB && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
+            options.targetAddressSpace = 'local';
+        }
+        return await fetch(url, options);
     } finally {
         clearTimeout(abortTimer);
     }
@@ -773,6 +806,7 @@ const FacebookLatestTicker = () => {
     const [retryNonce, setRetryNonce] = useState(0);
     const [permissionState, setPermissionState] = useState('unknown');
     const [manualConnecting, setManualConnecting] = useState(false);
+    const [iosLocalFallback, setIosLocalFallback] = useState(false);
     const [collapsed, setCollapsed] = useState(() => {
         try { return localStorage.getItem('fb_monitor_sidebar_collapsed') === '1'; }
         catch (e) { return false; }
@@ -789,6 +823,7 @@ const FacebookLatestTicker = () => {
     const pendingNewCountRef = useRef(0);
     const connectionWarningTimerRef = useRef(null);
     const everConnectedRef = useRef(false);
+    const localReturnUrlRef = useRef(getFacebookMonitorReturnUrl());
     const monitorBase = monitorBaseRef.current;
 
     const normalizeDisplayLimit = (value) => {
@@ -912,6 +947,17 @@ const FacebookLatestTicker = () => {
                 const data = await fetchMonitorSnapshot(initializedRef.current ? 8000 : 25000);
                 if (!alive) return;
 
+                // iPhone/iPad: if Safari can confirm that the Monitor is online,
+                // move to the same-origin local dashboard. This avoids HTTPS ->
+                // HTTP LAN restrictions for the news ticker. The GitHub URL is
+                // carried along so the local page can return here if Monitor stops.
+                if (FB_MONITOR_IS_IOS_GITHUB) {
+                    const localUrl = buildFacebookMonitorLocalDashboardUrl(monitorBase);
+                    window.location.replace(localUrl);
+                    return;
+                }
+                setIosLocalFallback(false);
+
                 // API เรียงใหม่ -> เก่า และจำนวนข่าวใช้ค่าจากฝั่ง Admin (10/20/30/ทั้งหมด)
                 const nextDisplayLimit = normalizeDisplayLimit(data.display_limit);
                 const nextItems = applyDisplayLimit(Array.isArray(data.items) ? data.items : [], nextDisplayLimit);
@@ -992,7 +1038,28 @@ const FacebookLatestTicker = () => {
             } catch (error) {
                 if (!alive) return;
                 console.warn('เชื่อมต่อ Facebook News Chiang Mai Monitor 24 Hrs. ไม่สำเร็จ', error);
+
+                // If an iPhone/iPad was handed from GitHub to the local page and
+                // the Monitor later stops, return to the normal GitHub dashboard.
+                // The main news page therefore remains usable even when Monitor is off.
+                if (FB_MONITOR_IS_LOCAL_DASHBOARD && localReturnUrlRef.current && everConnectedRef.current) {
+                    window.location.replace(localReturnUrlRef.current);
+                    return;
+                }
+
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
+
+                // Safari/iOS can block the HTTPS GitHub page from probing an HTTP
+                // LAN address even when the IP is correct. Do not show the misleading
+                // "ตั้งค่า IP" warning there. Keep the normal news page and offer a
+                // one-tap local link as a fallback.
+                if (FB_MONITOR_IS_IOS_GITHUB) {
+                    setIosLocalFallback(true);
+                    setShowConnectionWarning(false);
+                    setShowWarningDetails(false);
+                    return;
+                }
+
                 getFacebookMonitorPermissionState().then(state => { if (alive) setPermissionState(state); }).catch(() => {});
                 // v0.1.40: แม้ยังไม่เคยเชื่อมต่อสำเร็จ ก็ต้องมีปุ่มเล็กให้ตั้งค่า IP ได้
                 // ไม่แสดงแถบข่าวใหญ่จนกว่าจะต่อ Monitor สำเร็จ
@@ -1025,6 +1092,10 @@ const FacebookLatestTicker = () => {
         setManualConnecting(true);
         try {
             const data = await fetchMonitorSnapshot(30000);
+            if (FB_MONITOR_IS_IOS_GITHUB) {
+                window.location.replace(buildFacebookMonitorLocalDashboardUrl(monitorBase));
+                return;
+            }
             const nextDisplayLimit = normalizeDisplayLimit(data.display_limit);
             const nextItems = applyDisplayLimit(Array.isArray(data.items) ? data.items : [], nextDisplayLimit);
             const nextInterval = Math.max(1, Number(data.check_interval_minutes) || 10);
@@ -1062,6 +1133,23 @@ const FacebookLatestTicker = () => {
         } catch (e) { }
         window.location.reload();
     };
+
+    // iOS/Safari: keep the GitHub news page normal. If the direct LAN probe is
+    // blocked, never ask for the IP again; the saved IP is already used. Offer
+    // a small direct local link instead. If Monitor is off, the sidebar stays hidden.
+    if (!monitorState.connected && FB_MONITOR_IS_IOS_GITHUB && iosLocalFallback) {
+        const localUrl = buildFacebookMonitorLocalDashboardUrl(monitorBase);
+        return React.createElement('div', { className: 'fb-monitor-warning-mini' },
+            React.createElement('a', {
+                className: 'fb-monitor-warning-pill fb-monitor-ios-local-link',
+                href: localUrl,
+                title: 'เปิดข่าวล่าสุดผ่านเครื่อง Monitor ใน Wi-Fi เดียวกัน'
+            },
+                React.createElement(Icon, { name: 'arrow-up-right', size: 13 }),
+                React.createElement('span', null, 'เปิดข่าวล่าสุดบน iPhone/iPad')
+            )
+        );
+    }
 
     // ยังต่อ Monitor ไม่ได้: ไม่แสดง Sidebar ข่าว แต่หลังรอ 6.5 วินาทีให้มีปุ่มเล็กสำหรับดูสถานะ/ตั้งค่า IP
     if (!monitorState.connected) {
