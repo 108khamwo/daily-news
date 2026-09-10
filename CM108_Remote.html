@@ -1,235 +1,55 @@
 <!doctype html>
 <html lang="th">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CM108 Remote Diagnostic v2</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CM108 Feed Probe v3</title>
 <style>
-body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:#f5f7fb;color:#111}
-.wrap{max-width:760px;margin:auto;padding:16px}
-.card{background:#fff;border:1px solid #dbe2ea;border-radius:14px;padding:16px;margin:12px 0}
-h1{font-size:20px;margin:0 0 8px} h2{font-size:16px;margin:0 0 10px}
-input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #c9d2dc;border-radius:9px;font-size:16px;margin:6px 0}
-button{padding:11px 14px;border:0;border-radius:9px;background:#111827;color:#fff;font-size:15px;margin:5px 5px 5px 0}
-button.alt{background:#475569}
-.status{padding:10px;border-radius:9px;margin:6px 0;background:#eef2f7;word-break:break-word}
-.ok{background:#dcfce7;color:#166534}.fail{background:#fee2e2;color:#991b1b}.wait{background:#fef3c7;color:#92400e}
-.warn{background:#fff7ed;color:#9a3412;padding:10px;border-radius:9px;margin-top:8px}
-pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#d7e2ff;padding:12px;border-radius:10px;max-height:420px;overflow:auto;font-size:12px}
-.small{font-size:12px;color:#64748b}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
-    <h1>CM108 Remote Diagnostic v2</h1>
-    <div id="env" class="small"></div>
-    <div id="originWarn"></div>
-  </div>
-
-  <div class="card">
-    <h2>ทดสอบ Google Remote โดยไม่แก้โปรแกรมจริง</h2>
-    <input id="remote" value="https://script.google.com/macros/s/AKfycbymdnOF5LRlctMC4dQRha9gOHpUgSvogyIGLj0AP79qFNTcTfeiDPpENMYRtgE21y-5YQ/exec">
-    <input id="password" type="password" placeholder="viewer_password">
-    <button id="run">ทดสอบ Challenge + Login + Feed 60 วินาที</button>
-    <button id="bridge" class="alt">ทดสอบ Bridge แยก</button>
-    <button id="copy" class="alt">คัดลอกผล</button>
-  </div>
-
-  <div class="card">
-    <div id="sChallenge" class="status">Challenge: ยังไม่ได้ทดสอบ</div>
-    <div id="sLogin" class="status">Login: ยังไม่ได้ทดสอบ</div>
-    <div id="sFeed" class="status">Feed: ยังไม่ได้ทดสอบ</div>
-    <div id="sBridge" class="status">Bridge: ยังไม่ได้ทดสอบ</div>
-  </div>
-
-  <div class="card"><pre id="log"></pre></div>
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f5f7fb;margin:0;color:#111}
+main{max-width:760px;margin:auto;padding:16px}.card{background:white;border:1px solid #dbe2ea;border-radius:14px;padding:16px;margin:12px 0}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:9px;margin:6px 0;font-size:16px}
+button{border:0;border-radius:9px;padding:12px 14px;background:#2563eb;color:#fff;font-size:15px}
+.s{padding:10px;border-radius:8px;background:#eef2f7;margin:7px 0}.ok{background:#dcfce7;color:#166534}.bad{background:#fee2e2;color:#991b1b}.wait{background:#fef3c7;color:#92400e}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#dbeafe;padding:12px;border-radius:10px;font-size:12px}
+small{color:#64748b}
+</style></head>
+<body><main>
+<div class="card"><b>CM108 Feed Probe v3</b><br><small id="env"></small></div>
+<div class="card">
+<input id="url" value="https://script.google.com/macros/s/AKfycbymdnOF5LRlctMC4dQRha9gOHpUgSvogyIGLj0AP79qFNTcTfeiDPpENMYRtgE21y-5YQ/exec">
+<input id="pw" type="password" placeholder="viewer_password">
+<button id="run">ทดสอบ Fast Feed Probe</button>
 </div>
-
+<div class="card">
+<div id="a" class="s">Challenge: รอ</div>
+<div id="b" class="s">Login: รอ</div>
+<div id="c" class="s">Fast Feed Probe: รอ</div>
+</div>
+<div class="card"><pre id="log"></pre></div>
+</main>
 <script>
-const $=id=>document.getElementById(id);
-const logEl=$('log');
-let lastToken='';
-
-function ts(){return new Date().toISOString()}
-function log(msg,obj){
-  let s=`[${ts()}] ${msg}`;
-  if(obj!==undefined){try{s+=' '+JSON.stringify(obj)}catch(e){s+=' '+String(obj)}}
-  logEl.textContent+=s+'\n'; logEl.scrollTop=logEl.scrollHeight;
-}
-function setStatus(id,kind,text){const e=$(id);e.className='status '+kind;e.textContent=text}
-const env={ua:navigator.userAgent,origin:location.origin,href:location.href,online:navigator.onLine};
-$('env').textContent=`UA: ${env.ua} | Origin: ${env.origin} | Online: ${env.online}`;
-if(location.protocol!=='https:'){
-  $('originWarn').innerHTML='<div class="warn">คำเตือน: ตอนนี้ไม่ได้เปิดผ่าน HTTPS — ให้อัปไฟล์นี้ขึ้น GitHub Pages แล้วเปิดจาก Android เพื่อให้สภาพแวดล้อมใกล้ Dashboard จริง</div>';
-}
-log('Diagnostic v2 ready',env);
-
-function jsonp(params, timeout=30000, label='JSONP'){
-  return new Promise((resolve,reject)=>{
-    const remote=$('remote').value.trim();
-    const cb='cm108DiagV2_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
-    const script=document.createElement('script');
-    let finished=false, callbackCalled=false, loaded=false;
-    const started=performance.now();
-
-    const cleanup=()=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer); clearInterval(ticker);
-      setTimeout(()=>{try{delete window[cb]}catch(e){window[cb]=undefined} try{script.remove()}catch(e){}},500);
-    };
-    window[cb]=(data)=>{
-      callbackCalled=true;
-      const ms=Math.round(performance.now()-started);
-      log(label+' CALLBACK',{ms,ok:data&&data.ok,authenticated:data&&data.authenticated});
-      cleanup(); resolve({data:data||{},ms});
-    };
-    script.onload=()=>{
-      loaded=true;
-      log(label+' SCRIPT onload',{ms:Math.round(performance.now()-started),callbackCalled});
-      if(!callbackCalled){
-        setTimeout(()=>{
-          if(!finished && !callbackCalled){
-            cleanup(); reject(new Error('SCRIPT_LOADED_BUT_NO_CALLBACK'));
-          }
-        },1500);
-      }
-    };
-    script.onerror=()=>{
-      log(label+' SCRIPT onerror',{ms:Math.round(performance.now()-started)});
-      cleanup(); reject(new Error('SCRIPT_LOAD_FAILED'));
-    };
-
-    const timer=setTimeout(()=>{
-      log(label+' TIMEOUT',{ms:Math.round(performance.now()-started),loaded,callbackCalled});
-      cleanup(); reject(new Error('TIMEOUT'));
-    },timeout);
-
-    let lastMark=0;
-    const ticker=setInterval(()=>{
-      const sec=Math.floor((performance.now()-started)/1000);
-      if(sec>=10 && sec%10===0 && sec!==lastMark){lastMark=sec;log(label+' still waiting',{seconds:sec,loaded,callbackCalled})}
-    },500);
-
-    const u=new URL(remote);
-    Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,String(v)));
-    u.searchParams.set('callback',cb);
-    u.searchParams.set('_',Date.now());
-    script.src=u.toString();
-    script.async=true;
-    document.head.appendChild(script);
-  });
-}
-
-function b64url(bytes){
-  let s=''; bytes.forEach(b=>s+=String.fromCharCode(b));
-  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-async function proof(password,challenge){
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey('raw',enc.encode(password),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-  const sig=await crypto.subtle.sign('HMAC',key,enc.encode(challenge));
-  return b64url(new Uint8Array(sig));
-}
-
-async function runMain(){
-  lastToken='';
-  const pw=$('password').value;
-  if(!pw){alert('กรอกรหัส viewer_password ก่อน');return}
-  setStatus('sChallenge','wait','Challenge: กำลังทดสอบ…');
-  setStatus('sLogin','','Login: รอ');
-  setStatus('sFeed','','Feed: รอ');
-
-  try{
-    const ch=await jsonp({api:'auth_challenge'},30000,'CHALLENGE');
-    if(!ch.data.ok)throw new Error(ch.data.error||'CHALLENGE_FAILED');
-    setStatus('sChallenge','ok',`Challenge: ผ่าน ${ch.ms} ms · protocol ${ch.data.protocol_version||'?'}`);
-
-    setStatus('sLogin','wait','Login: กำลังทดสอบ…');
-    const p=await proof(pw,ch.data.challenge);
-    const lg=await jsonp({api:'auth_login',challenge:ch.data.challenge,proof:p,remember:'1'},30000,'LOGIN');
-    if(!lg.data.ok||!lg.data.token)throw new Error(lg.data.error||lg.data.message||'LOGIN_FAILED');
-    lastToken=lg.data.token;
-    setStatus('sLogin','ok',`Login: ผ่าน ${lg.ms} ms`);
-
-    setStatus('sFeed','wait','Feed: กำลังรอสูงสุด 60 วินาที…');
-    const fd=await jsonp({api:'feed',token:lastToken,limit:'3'},60000,'FEED');
-    if(!fd.data||fd.data.ok===false||fd.data.authenticated===false)throw new Error(fd.data&&fd.data.error||'FEED_FAILED');
-    const n=Array.isArray(fd.data.items)?fd.data.items.length:0;
-    setStatus('sFeed','ok',`Feed: ผ่าน ${fd.ms} ms · ${n} ข่าว`);
-    log('FEED RESULT',{ms:fd.ms,items:n,monitor_online:fd.data.monitor_online,last_run:fd.data.monitor_last_run_at||null});
-  }catch(e){
-    log('MAIN FAIL',e.message);
-    if($('sChallenge').className.includes('wait'))setStatus('sChallenge','fail','Challenge: '+e.message);
-    else if($('sLogin').className.includes('wait'))setStatus('sLogin','fail','Login: '+e.message);
-    else setStatus('sFeed','fail','Feed: '+e.message);
-  }
-}
-
-const bridgePending=new Map();
-window.addEventListener('message',ev=>{
-  const d=ev.data||{};
-  if(d.type!=='cm108-browser-bridge')return;
-  log('BRIDGE MESSAGE',{origin:ev.origin,request_id:d.request_id,ok:d.payload&&d.payload.ok,error:d.payload&&d.payload.error});
-  const p=bridgePending.get(String(d.request_id||''));
-  if(!p)return;
-  bridgePending.delete(String(d.request_id)); clearTimeout(p.timer);
-  try{p.iframe.remove()}catch(e){}
-  p.resolve(d.payload||{});
-});
-
-function bridgeLogin(password,timeout=45000){
-  return new Promise((resolve,reject)=>{
-    const remote=$('remote').value.trim();
-    const requestId='diagv2_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
-    const frameName='cm108_diagv2_'+requestId;
-    const iframe=document.createElement('iframe');
-    iframe.name=frameName; iframe.style='position:fixed;width:2px;height:2px;left:-10000px;top:-10000px;border:0';
-    const form=document.createElement('form');
-    form.method='POST'; form.action=remote; form.target=frameName; form.style.display='none';
-    const vals={browser_action:'login',request_id:requestId,password,remember:'1'};
-    Object.entries(vals).forEach(([k,v])=>{const i=document.createElement('input');i.type='hidden';i.name=k;i.value=v;form.appendChild(i)});
-    const t0=performance.now();
-    const timer=setTimeout(()=>{
-      bridgePending.delete(requestId);
-      try{iframe.remove();form.remove()}catch(e){}
-      log('BRIDGE TIMEOUT',{ms:Math.round(performance.now()-t0)});
-      reject(new Error('BRIDGE_TIMEOUT'));
-    },timeout);
-    bridgePending.set(requestId,{resolve,reject,timer,iframe});
-    document.body.appendChild(iframe); document.body.appendChild(form);
-    log('BRIDGE submitted',{request_id:requestId});
-    form.submit(); setTimeout(()=>{try{form.remove()}catch(e){}},1000);
-  });
-}
-
-async function runBridge(){
-  const pw=$('password').value;
-  if(!pw){alert('กรอกรหัส viewer_password ก่อน');return}
-  setStatus('sBridge','wait','Bridge: กำลังรอสูงสุด 45 วินาที…');
-  const t=performance.now();
-  try{
-    const r=await bridgeLogin(pw);
-    if(!r||!r.ok||!r.token)throw new Error(r&& (r.error||r.message)||'BRIDGE_LOGIN_FAILED');
-    setStatus('sBridge','ok',`Bridge: ผ่าน ${Math.round(performance.now()-t)} ms`);
-  }catch(e){setStatus('sBridge','fail','Bridge: '+e.message);log('BRIDGE FAIL',e.message)}
-}
-
-$('run').onclick=runMain;
-$('bridge').onclick=runBridge;
-$('copy').onclick=async()=>{
-  const txt=`CM108 Remote Diagnostic v2
-${$('env').textContent}
-${$('sChallenge').textContent}
-${$('sLogin').textContent}
-${$('sFeed').textContent}
-${$('sBridge').textContent}
-
-${logEl.textContent}`;
-  try{await navigator.clipboard.writeText(txt);$('copy').textContent='คัดลอกแล้ว';setTimeout(()=>$('copy').textContent='คัดลอกผล',1500)}
-  catch(e){prompt('คัดลอกข้อความนี้',txt)}
+const $=x=>document.getElementById(x), log=t=>{$('log').textContent+=`[${new Date().toISOString()}] ${t}\n`};
+$('env').textContent=`UA: ${navigator.userAgent} | Origin: ${location.origin}`;
+function st(id,k,t){$(id).className='s '+k;$(id).textContent=t}
+function jp(params,timeout,label){return new Promise((res,rej)=>{
+ const cb='cm108Probe_'+Date.now().toString(36)+Math.random().toString(36).slice(2);
+ const s=document.createElement('script'); const t0=performance.now(); let done=false;
+ const clean=()=>{if(done)return;done=true;clearTimeout(timer);setTimeout(()=>{try{delete window[cb]}catch(e){};s.remove()},500)};
+ window[cb]=d=>{const ms=Math.round(performance.now()-t0);log(`${label} callback ${ms}ms ${JSON.stringify(d)}`);clean();res({d,ms})};
+ s.onload=()=>log(`${label} onload ${Math.round(performance.now()-t0)}ms`);
+ s.onerror=()=>{clean();rej(new Error('LOAD_FAILED'))};
+ const timer=setTimeout(()=>{clean();rej(new Error('TIMEOUT'))},timeout);
+ const u=new URL($('url').value.trim());Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));u.searchParams.set('callback',cb);u.searchParams.set('_',Date.now());
+ s.src=u.toString();document.head.appendChild(s);
+})}
+function b64u(bytes){let s='';bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+async function hmac(pw,ch){const e=new TextEncoder(),k=await crypto.subtle.importKey('raw',e.encode(pw),{name:'HMAC',hash:'SHA-256'},false,['sign']);return b64u(new Uint8Array(await crypto.subtle.sign('HMAC',k,e.encode(ch))))}
+$('run').onclick=async()=>{
+ $('log').textContent='';const pw=$('pw').value;if(!pw)return alert('กรอกรหัสก่อน');
+ try{
+  st('a','wait','Challenge: กำลังทดสอบ');const a=await jp({api:'auth_challenge'},45000,'challenge');if(!a.d.ok)throw Error(a.d.error||'challenge failed');st('a','ok',`Challenge: ผ่าน ${a.ms}ms`);
+  st('b','wait','Login: กำลังทดสอบ');const proof=await hmac(pw,a.d.challenge);const b=await jp({api:'auth_login',challenge:a.d.challenge,proof,remember:'1'},45000,'login');if(!b.d.ok||!b.d.token)throw Error(b.d.error||'login failed');st('b','ok',`Login: ผ่าน ${b.ms}ms`);
+  st('c','wait','Fast Feed Probe: รอสูงสุด 45 วินาที');const c=await jp({api:'feed_probe_fast',token:b.d.token,limit:'20'},45000,'fast_probe');if(!c.d.ok)throw Error(c.d.error||'probe failed');
+  const tm=c.d.timings||{};st('c','ok',`Fast Feed Probe: ผ่าน ${c.ms}ms | server ${tm.total_ms||'?'}ms | scan ${c.d.scanned_rows}/${c.d.total_rows} แถว`);
+ }catch(e){log('FAIL '+e.message); if($('c').className.includes('wait'))st('c','bad','Fast Feed Probe: '+e.message)}
 };
-</script>
-</body>
-</html>
+</script></body></html>
