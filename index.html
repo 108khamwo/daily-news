@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.87">
+    <meta name="cm108-dashboard-version" content="0.1.88">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.87';
+        const CURRENT_DASHBOARD_VERSION = '0.1.88';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -276,6 +276,11 @@
             .fb-monitor-ticker-row { min-height: 56px; padding: 7px 12px; }
             .fb-monitor-mobile-label { display: inline; }
             .fb-monitor-desktop-label { display: none; }
+        }
+        @media (max-width: 640px) {
+            .fb-dashboard-root nav { padding-top: 10px; padding-bottom: 10px; }
+            .fb-dashboard-root nav h1 { font-size: 15px; }
+            .fb-dashboard-root nav .text-orange-500 { font-size: 10px; }
         }
         @media (max-width: 640px) {
             .fb-monitor-sidebar-title-text { font-size: 13px; }
@@ -2376,15 +2381,15 @@ const App = () => {
                     "\u0E41\u0E01\u0E49\u0E42\u0E25\u0E42\u0E01\u0E49 / \u0E41\u0E1A\u0E48\u0E07\u0E2A\u0E35\u0E15\u0E32\u0E21\u0E27\u0E31\u0E19")),
             React.createElement("button", { onClick: () => setShowUpdateAlert(false), className: "p-1.5 hover:bg-white/20 rounded-full transition-colors shrink-0 ml-2", title: "\u0E1B\u0E34\u0E14\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19" },
                 React.createElement(Icon, { name: "x", size: 16 })))),
-        React.createElement("nav", { className: "bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-40 px-3 sm:px-4 md:px-8 py-3 sm:py-0 sm:h-16 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 justify-center sm:justify-between border-b border-gray-100" },
-            React.createElement("div", { className: "flex items-center gap-3 cursor-pointer min-w-0 w-full sm:w-auto flex-1", onClick: () => { setEditingItem(null); setView('dashboard'); } },
+        React.createElement("nav", { className: "bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-40 px-3 sm:px-4 md:px-8 py-3 min-h-16 flex flex-row items-center justify-between gap-2 sm:gap-3 border-b border-gray-100" },
+            React.createElement("div", { className: "flex items-center gap-3 cursor-pointer min-w-0 flex-1", onClick: () => { setEditingItem(null); setView('dashboard'); } },
                 React.createElement("div", { className: "bg-gradient-to-tr from-blue-600 to-blue-500 p-2 rounded-xl text-white shadow-md shadow-blue-200 shrink-0" },
                     React.createElement(Icon, { name: "newspaper", size: 22 })),
                 React.createElement("div", { className: "flex flex-col min-w-0" },
-                    React.createElement("h1", { className: "text-base sm:text-lg font-bold text-gray-800 tracking-tight leading-tight break-words" }, "\u0E23\u0E27\u0E21\u0E02\u0E48\u0E32\u0E27\u0E23\u0E32\u0E22\u0E27\u0E31\u0E19 CM108"),
-                    React.createElement("span", { className: "text-[10px] text-orange-500 font-bold mt-1 tracking-wide leading-tight" }, "*\u0E02\u0E48\u0E32\u0E27\u0E08\u0E30\u0E16\u0E39\u0E01\u0E25\u0E1A\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E2D\u0E32\u0E22\u0E38\u0E40\u0E01\u0E34\u0E19 60 \u0E27\u0E31\u0E19"))),
-            React.createElement("div", { className: "flex items-center gap-2 md:gap-3 flex-wrap justify-end w-full sm:w-auto" },
-                view === 'dashboard' && (React.createElement("button", { onClick: () => setView('standalone-editor'), className: "bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 sm:px-3.5 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-1.5 md:gap-2 transition-all active:scale-95 text-[13px] sm:text-sm min-w-0", title: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E41\u0E01\u0E49\u0E1B\u0E01\u0E2D\u0E34\u0E2A\u0E23\u0E30" },
+                    React.createElement("h1", { className: "text-base sm:text-lg font-bold text-gray-800 tracking-tight leading-tight break-words max-w-full" }, "\u0E23\u0E27\u0E21\u0E02\u0E48\u0E32\u0E27\u0E23\u0E32\u0E22\u0E27\u0E31\u0E19 CM108"),
+                    React.createElement("span", { className: "text-[10px] text-orange-500 font-bold mt-1 tracking-wide leading-tight max-w-full" }, "*\u0E02\u0E48\u0E32\u0E27\u0E08\u0E30\u0E16\u0E39\u0E01\u0E25\u0E1A\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E2D\u0E32\u0E22\u0E38\u0E40\u0E01\u0E34\u0E19 60 \u0E27\u0E31\u0E19"))),
+            React.createElement("div", { className: "flex items-center gap-2 sm:gap-3 justify-end shrink-0" },
+                view === 'dashboard' && (React.createElement("button", { onClick: () => setView('standalone-editor'), className: "bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 sm:px-3.5 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-1.5 md:gap-2 transition-all active:scale-95 text-[13px] sm:text-sm whitespace-nowrap shrink-0", title: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E41\u0E01\u0E49\u0E1B\u0E01\u0E2D\u0E34\u0E2A\u0E23\u0E30" },
                     React.createElement(Icon, { name: "image-plus", size: 18 }),
                     React.createElement("span", { className: "sm:hidden whitespace-nowrap" }, "\u0E41\u0E01\u0E49\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E02\u0E48\u0E32\u0E27"),
                     React.createElement("span", { className: "hidden sm:inline" }, "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E1A\u0E19\u0E1B\u0E01\u0E02\u0E48\u0E32\u0E27"))),
