@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.74">
+    <meta name="cm108-dashboard-version" content="0.1.75">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.74';
+        const CURRENT_DASHBOARD_VERSION = '0.1.75';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.74 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.75 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -220,7 +220,7 @@
         .fb-monitor-all-link { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; transition: background .12s ease; }
         .fb-monitor-remote-wrap { min-height: 0; flex: 1; position: relative; background: #fff; overflow: hidden; }
         .fb-monitor-remote-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #fff; }
-        .fb-monitor-remote-fallback { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; padding: 18px; background: rgba(244,247,251,.96); }
+        .fb-monitor-remote-fallback { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 4; display: block; padding: 8px; border: 1px solid #dbe5f1; border-radius: 12px; background: rgba(255,255,255,.96); box-shadow: 0 6px 20px rgba(15,23,42,.10); }
         .fb-monitor-remote-fallback-card { width: min(300px, 100%); display: flex; flex-direction: column; gap: 8px; text-align: center; color: #475569; font-size: 11px; line-height: 1.5; }
         .fb-monitor-remote-fallback-card strong { color: #0f172a; font-size: 13px; }
         .fb-monitor-remote-fallback-card a { display: inline-flex; justify-content: center; align-items: center; margin-top: 4px; padding: 9px 11px; border-radius: 10px; background: #2563eb; color: #fff; text-decoration: none; font-weight: 800; }
@@ -736,9 +736,19 @@ const FB_MONITOR_LOOPBACK_URL = 'http://127.0.0.1:8787';
 const FB_MONITOR_IP_FALLBACK_URL = 'http://192.168.1.102:8787';
 const FB_MONITOR_OLD_DEFAULT_URL = 'http://192.168.1.7:8787';
 const FB_MONITOR_URL = FB_MONITOR_MDNS_URL;
-// v0.1.74: Cloud fallback used only when the Local Monitor cannot be reached.
+// v0.1.75: Cloud fallback used only when the Local Monitor cannot be reached.
 // This is the existing Google Apps Script viewer; login remains enforced inside Google.
 const FB_MONITOR_REMOTE_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbymdnOF5LRlctMC4dQRha9gOHpUgSvogyIGLj0AP79qFNTcTfeiDPpENMYRtgE21y-5YQ/exec';
+const FB_MONITOR_REMOTE_FRAME_TOKEN = (() => {
+    try {
+        if (window.crypto && window.crypto.getRandomValues) {
+            const a = new Uint32Array(4);
+            window.crypto.getRandomValues(a);
+            return Array.from(a).map(v => v.toString(16).padStart(8, '0')).join('');
+        }
+    } catch (e) { }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+})();
 const getFacebookMonitorRemoteUrl = () => {
     try {
         return String(localStorage.getItem('fb_monitor_remote_url') || FB_MONITOR_REMOTE_DEFAULT_URL).trim();
@@ -749,6 +759,7 @@ const buildFacebookMonitorRemoteSidebarUrl = () => {
         const u = new URL(getFacebookMonitorRemoteUrl());
         u.searchParams.set('view', 'sidebar');
         u.searchParams.set('dashboard', CURRENT_DASHBOARD_VERSION);
+        u.searchParams.set('frame_token', FB_MONITOR_REMOTE_FRAME_TOKEN);
         return u.toString();
     } catch (e) { return getFacebookMonitorRemoteUrl(); }
 };
@@ -1318,7 +1329,7 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.74: LAN detection remains quiet, but no longer gives up after only
+    // v0.1.75: LAN detection remains quiet, but no longer gives up after only
     // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
     // permission and could incorrectly switch a same-LAN user to Google Remote.
     // All candidates still run in parallel and the first successful one wins.
@@ -1377,9 +1388,10 @@ const FacebookLatestTicker = () => {
     useEffect(() => {
         const onRemoteMessage = (event) => {
             const origin = String(event.origin || '');
-            const trustedGoogle = origin === 'https://script.google.com' || origin.endsWith('.googleusercontent.com');
             const payload = event.data || {};
+            const trustedGoogle = origin === 'https://script.google.com' || origin.endsWith('.googleusercontent.com') || origin === 'null' || origin === '';
             if (!trustedGoogle || payload.type !== 'cm108-remote-news') return;
+            if (String(payload.frame_token || '') !== FB_MONITOR_REMOTE_FRAME_TOKEN) return;
             setRemoteFrameReady(true);
             setRemoteFrameSlow(false);
         };
@@ -1395,7 +1407,7 @@ const FacebookLatestTicker = () => {
         }
         setRemoteFrameReady(false);
         setRemoteFrameSlow(false);
-        const timer = setTimeout(() => setRemoteFrameSlow(true), 8000);
+        const timer = setTimeout(() => setRemoteFrameSlow(true), 15000);
         return () => clearTimeout(timer);
     }, [feedMode, monitorState.connected]);
 
@@ -1547,7 +1559,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.74: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.75: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1637,7 +1649,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.74: Outside the LAN, replace only the right latest-news panel with
+    // v0.1.75: Outside the LAN, replace only the right latest-news panel with
     // the Google Apps Script viewer. The iframe keeps Google login/auth isolated;
     // no viewer password or secret is ever embedded in this public Dashboard.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
@@ -1690,8 +1702,8 @@ const FacebookLatestTicker = () => {
                     }),
                     remoteFrameSlow && !remoteFrameReady ? React.createElement('div', { className: 'fb-monitor-remote-fallback' },
                         React.createElement('div', { className: 'fb-monitor-remote-fallback-card' },
-                            React.createElement('strong', null, 'Remote News ยังไม่สามารถแสดงในแถบนี้'),
-                            React.createElement('span', null, 'ตรวจว่า Google Apps Script เป็น v0.1.74 และ Deploy เป็น New version แล้ว'),
+                            React.createElement('strong', null, 'กำลังรอ Google Remote…'),
+                            React.createElement('span', null, 'ถ้ายังไม่ขึ้น ให้เปิด Remote News เพื่อตรวจ Login/Deployment'),
                             React.createElement('a', { href: getFacebookMonitorRemoteUrl(), target: '_blank', rel: 'noopener noreferrer' }, 'เปิด Remote News ในแท็บใหม่ ↗')
                         )
                     ) : null
