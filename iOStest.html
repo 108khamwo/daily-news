@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CM108 iOS LAN Diagnostic</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f5f7fb;color:#111;margin:0}
+main{max-width:760px;margin:auto;padding:16px}
+.card{background:#fff;border:1px solid #dbe2ea;border-radius:14px;padding:16px;margin:12px 0}
+h1{font-size:20px;margin:0 0 8px} h2{font-size:16px;margin:0 0 10px}
+input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:9px;margin:6px 0;font-size:16px}
+button,a.btn{display:inline-block;border:0;border-radius:9px;padding:11px 14px;background:#2563eb;color:white;text-decoration:none;font-size:15px;margin:5px 5px 5px 0}
+button.alt,a.alt{background:#475569}
+.s{padding:10px;border-radius:9px;background:#eef2f7;margin:7px 0;word-break:break-word}
+.ok{background:#dcfce7;color:#166534}.bad{background:#fee2e2;color:#991b1b}.wait{background:#fef3c7;color:#92400e}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#dbeafe;padding:12px;border-radius:10px;max-height:420px;overflow:auto;font-size:12px}
+small{color:#64748b}.warn{background:#fff7ed;color:#9a3412;padding:10px;border-radius:9px}
+</style>
+</head>
+<body><main>
+<div class="card">
+<h1>CM108 iOS LAN Diagnostic</h1>
+<div id="env"><small></small></div>
+</div>
+
+<div class="card">
+<h2>URL เครื่อง Monitor</h2>
+<input id="base" placeholder="เช่น http://192.168.1.102:8787">
+<div><button id="saved" class="alt">ใช้ IP ที่ Dashboard จำไว้</button>
+<button id="mdns" class="alt">ใช้ cm108-monitor.local</button></div>
+<div id="savedInfo" class="s"></div>
+</div>
+
+<div class="card">
+<h2>ทดสอบจากหน้า HTTPS → Local HTTP</h2>
+<button id="run">ทดสอบทั้งหมด</button>
+<a id="openLocal" class="btn alt" href="#" target="_blank">เปิด Local โดยตรง</a>
+<div id="fetchStatus" class="s">Fetch API: รอ</div>
+<div id="imgStatus" class="s">Image beacon: รอ</div>
+<div id="nocorsStatus" class="s">no-cors fetch: รอ</div>
+</div>
+
+<div class="card">
+<b>วิธีอ่านผล</b>
+<div class="s">Fetch ❌ แต่ Image ✅ → เราแก้ Auto LAN บน iOS ด้วย image beacon ได้</div>
+<div class="s">Fetch ❌ และ Image ❌ แต่ “เปิด Local โดยตรง” เข้าได้ → Safari บล็อกการตรวจจาก HTTPS; ต้องใช้วิธีสลับแบบ navigation/HTTPS relay</div>
+<div class="s">เปิด Local โดยตรงก็เข้าไม่ได้ → ปัญหา IP / Firewall / Wi‑Fi isolation / Local Network permission</div>
+</div>
+
+<div class="card">
+<button id="copy" class="alt">คัดลอกผล</button>
+<pre id="log"></pre>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const logEl=$('log');
+const log=(m,o)=>{let s=`[${new Date().toISOString()}] ${m}`;if(o!==undefined){try{s+=' '+JSON.stringify(o)}catch(e){s+=' '+String(o)}}logEl.textContent+=s+'\n';logEl.scrollTop=logEl.scrollHeight};
+const setS=(id,k,t)=>{const e=$(id);e.className='s '+k;e.textContent=t};
+const clean=v=>String(v||'').trim().replace(/\/$/,'');
+const savedBase=(()=>{try{return clean(localStorage.getItem('fb_monitor_base_url'))}catch(e){return ''}})();
+const savedHost=(()=>{try{return clean(localStorage.getItem('fb_monitor_system_url'))}catch(e){return ''}})();
+$('env').innerHTML=`<small>UA: ${navigator.userAgent}<br>Origin: ${location.origin}<br>Online: ${navigator.onLine}</small>`;
+$('savedInfo').textContent=`Dashboard จำ IP: ${savedBase||'(ไม่มี)'} | Host: ${savedHost||'(ไม่มี)'}`;
+$('base').value=savedBase||'http://192.168.1.102:8787';
+
+function updateLink(){
+ const b=clean($('base').value);
+ $('openLocal').href=b?b+'/daily-news':'#';
+}
+$('base').oninput=updateLink; updateLink();
+$('saved').onclick=()=>{$('base').value=savedBase||'http://192.168.1.102:8787';updateLink()};
+$('mdns').onclick=()=>{$('base').value='http://cm108-monitor.local:8787';updateLink()};
+
+function fetchWithTimeout(url,ms,options={}){
+ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms);
+ const t0=performance.now();
+ return fetch(url,{cache:'no-store',signal:c.signal,...options})
+   .then(async r=>({ok:r.ok,status:r.status,ms:Math.round(performance.now()-t0),text:await r.text()}))
+   .finally(()=>clearTimeout(t));
+}
+function imageProbe(url,ms=12000){
+ return new Promise((resolve,reject)=>{
+   const img=new Image(); const t0=performance.now(); let done=false;
+   const finish=(ok,reason)=>{if(done)return;done=true;clearTimeout(timer);img.onload=img.onerror=null;ok?resolve({ms:Math.round(performance.now()-t0)}):reject(new Error(reason))};
+   img.onload=()=>finish(true);
+   img.onerror=()=>finish(false,'IMAGE_ERROR');
+   const timer=setTimeout(()=>finish(false,'IMAGE_TIMEOUT'),ms);
+   img.src=url+(url.includes('?')?'&':'?')+'_='+Date.now();
+ });
+}
+
+$('run').onclick=async()=>{
+ const b=clean($('base').value);
+ if(!/^http:\/\/.+:8787$/i.test(b)){alert('ใส่ URL เช่น http://192.168.1.102:8787');return}
+ log('=== RUN ===',{base:b});
+ setS('fetchStatus','wait','Fetch API: กำลังทดสอบ…');
+ setS('imgStatus','wait','Image beacon: กำลังทดสอบ…');
+ setS('nocorsStatus','wait','no-cors fetch: กำลังทดสอบ…');
+
+ try{
+   const r=await fetchWithTimeout(b+'/api/public/network?_=diag',10000);
+   let parsed=null;try{parsed=JSON.parse(r.text)}catch(e){}
+   setS('fetchStatus',r.ok?'ok':'bad',`Fetch API: ${r.ok?'ผ่าน':'ไม่ผ่าน'} ${r.ms}ms HTTP ${r.status}`);
+   log('FETCH RESULT',{...r,text:(parsed||r.text).toString?.()||parsed,parsed});
+ }catch(e){
+   setS('fetchStatus','bad','Fetch API: ไม่ผ่าน · '+(e.name||e.message));
+   log('FETCH FAIL',{name:e.name,message:e.message});
+ }
+
+ try{
+   const r=await imageProbe(b+'/favicon.ico',12000);
+   setS('imgStatus','ok',`Image beacon: ผ่าน ${r.ms}ms`);
+   log('IMAGE PASS',r);
+ }catch(e){
+   setS('imgStatus','bad','Image beacon: ไม่ผ่าน · '+e.message);
+   log('IMAGE FAIL',e.message);
+ }
+
+ try{
+   const r=await fetchWithTimeout(b+'/favicon.ico?_=nocors',10000,{mode:'no-cors'});
+   setS('nocorsStatus','ok',`no-cors fetch: ผ่าน ${r.ms}ms`);
+   log('NO-CORS PASS',{ms:r.ms,status:r.status,type:r.type});
+ }catch(e){
+   setS('nocorsStatus','bad','no-cors fetch: ไม่ผ่าน · '+(e.name||e.message));
+   log('NO-CORS FAIL',{name:e.name,message:e.message});
+ }
+ log('=== DONE ===');
+};
+
+$('copy').onclick=async()=>{
+ const txt=`CM108 iOS LAN Diagnostic
+UA: ${navigator.userAgent}
+Origin: ${location.origin}
+Base: ${clean($('base').value)}
+Saved: ${savedBase}
+SavedHost: ${savedHost}
+
+${$('fetchStatus').textContent}
+${$('imgStatus').textContent}
+${$('nocorsStatus').textContent}
+
+${logEl.textContent}`;
+ try{await navigator.clipboard.writeText(txt);$('copy').textContent='คัดลอกแล้ว';setTimeout(()=>$('copy').textContent='คัดลอกผล',1500)}
+ catch(e){prompt('คัดลอกผลนี้',txt)}
+};
+</script>
+</body></html>
