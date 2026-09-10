@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.78">
+    <meta name="cm108-dashboard-version" content="0.1.79">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.78';
+        const CURRENT_DASHBOARD_VERSION = '0.1.79';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.78 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.79 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -755,7 +755,7 @@ const getFacebookMonitorRemoteUrl = () => {
     } catch (e) { return FB_MONITOR_REMOTE_DEFAULT_URL; }
 };
 const FB_MONITOR_REMOTE_DASH_TOKEN_KEY = 'cm108_remote_dashboard_token_v1';
-const FB_MONITOR_REMOTE_BRIDGE_STATE_KEY = 'cm108_remote_bridge_state_v178';
+const FB_MONITOR_REMOTE_BRIDGE_STATE_KEY = 'cm108_remote_bridge_state_v179';
 const loadFacebookMonitorRemoteToken = () => { try { return String(localStorage.getItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY) || ''); } catch (e) { return ''; } };
 const saveFacebookMonitorRemoteToken = (token) => { try { if (token) localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, String(token)); } catch (e) { } };
 const clearFacebookMonitorRemoteToken = () => { try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { } };
@@ -1188,36 +1188,21 @@ const FacebookLatestTicker = () => {
             if (tokenMatch && tokenMatch[1]) {
                 const returnedNonce = nonceMatch && nonceMatch[1] ? decodeURIComponent(nonceMatch[1]) : '';
                 const pending = loadFacebookMonitorBridgeState();
-                // Hash fallback is a full navigation back to this HTTPS dashboard. The token
-                // is HMAC-signed by Apps Script; when a pending nonce exists, require it too.
-                if (!pending || !returnedNonce || returnedNonce === String(pending.nonce || '')) {
+                // v0.1.79: Login returns by full-page navigation, not popup/postMessage.
+                // Require the exact one-time nonce that this Dashboard stored before leaving.
+                if (pending && returnedNonce && returnedNonce === String(pending.nonce || '')) {
                     acceptRemoteToken(decodeURIComponent(tokenMatch[1]));
                     clearFacebookMonitorBridgeState();
+                } else {
+                    clearFacebookMonitorRemoteToken();
+                    remoteTokenRef.current = '';
+                    setRemoteAuthState('login');
+                    setRemoteError('การยืนยัน Google Remote ไม่สมบูรณ์ กรุณาเข้าสู่ระบบอีกครั้ง');
                 }
+                // Remove the signed token from the visible URL immediately after consuming it.
                 history.replaceState(null, '', window.location.pathname + window.location.search);
             }
         } catch (e) { }
-        const onMessage = event => {
-            const data = event.data || {};
-            if (data.type !== 'cm108-remote-auth' || !data.token) return;
-            const origin = String(event.origin || '');
-            const trustedGoogle = origin === 'https://script.google.com' || origin.endsWith('.googleusercontent.com');
-            const opaqueGoogleSandbox = origin === 'null' || origin === '';
-            if (!trustedGoogle && !opaqueGoogleSandbox) return;
-            const pending = loadFacebookMonitorBridgeState();
-            // Apps Script HTML Service can emit postMessage with an opaque (null) origin.
-            // Accept that case only when the one-time nonce matches the login request.
-            if (!pending || String(data.bridge_nonce || '') !== String(pending.nonce || '')) return;
-            acceptRemoteToken(data.token);
-            clearFacebookMonitorBridgeState();
-            try {
-                if (event.source && typeof event.source.postMessage === 'function') {
-                    event.source.postMessage({type:'cm108-remote-auth-ack',bridge_nonce:String(data.bridge_nonce||'')}, '*');
-                }
-            } catch (e) { }
-        };
-        window.addEventListener('message', onMessage);
-        return () => window.removeEventListener('message', onMessage);
     }, []);
 
     useEffect(() => {
@@ -1391,10 +1376,9 @@ const FacebookLatestTicker = () => {
         const nonce = makeFacebookMonitorBridgeNonce();
         saveFacebookMonitorBridgeState(nonce);
         const url = buildFacebookMonitorRemoteBridgeUrl(nonce);
-        const w = window.open(url, 'cm108RemoteLogin', 'popup=yes,width=460,height=680,resizable=yes,scrollbars=yes');
-        // iOS/Safari may turn a popup into a new tab or block window.opener. Apps Script
-        // therefore also has a return_url fallback that navigates back with the signed token.
-        if (!w) window.location.href = url;
+        // v0.1.79: use the SAME tab for authentication. This avoids Safari/iOS losing
+        // window.opener or returning to the original unauthenticated Dashboard tab.
+        window.location.assign(url);
     };
 
     const openRemoteFloatingTicker = async () => {
@@ -1512,7 +1496,7 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.78: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
+    // v0.1.79: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
     // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
     // permission and could incorrectly switch a same-LAN user to Google Remote.
     // All candidates still run in parallel and the first successful one wins.
@@ -1742,7 +1726,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.78: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.79: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1832,7 +1816,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.78: Outside LAN, render Google Remote news directly in our own sidebar.
+    // v0.1.79: Outside LAN, render Google Remote news directly in our own sidebar.
     // No Apps Script iframe is used, avoiding Google Drive/HTML Service iframe failures on mobile.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
         const remoteRows = remoteItems.length ? remoteItems.map(item => {
