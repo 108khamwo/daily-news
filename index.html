@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.82">
+    <meta name="cm108-dashboard-version" content="0.1.83">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.82';
+        const CURRENT_DASHBOARD_VERSION = '0.1.83';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.82 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.83 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -758,15 +758,87 @@ const FB_MONITOR_REMOTE_DASH_TOKEN_KEY = 'cm108_remote_dashboard_token_v1';
 const loadFacebookMonitorRemoteToken = () => { try { return String(localStorage.getItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY) || ''); } catch (e) { return ''; } };
 const saveFacebookMonitorRemoteToken = (token) => { try { if (token) localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, String(token)); } catch (e) { } };
 const clearFacebookMonitorRemoteToken = () => { try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { } };
+const FB_MONITOR_IS_ANDROID = /Android/i.test(navigator.userAgent || '');
+
+// v0.1.83: Android Chromium on some networks can open the Apps Script JSONP URL
+// manually but times out when the same URL is loaded as a third-party <script>.
+// Use a normal HTTPS POST targeted at a hidden iframe instead. Apps Script returns
+// a tiny ALLOWALL HtmlOutput that posts the result back with a one-time request id.
+// Passwords therefore never appear in the URL or GitHub source/localStorage.
+const FB_MONITOR_REMOTE_BRIDGE_PENDING = new Map();
+let FB_MONITOR_REMOTE_BRIDGE_LISTENER_READY = false;
+const ensureFacebookMonitorRemoteBridgeListener = () => {
+    if (FB_MONITOR_REMOTE_BRIDGE_LISTENER_READY) return;
+    FB_MONITOR_REMOTE_BRIDGE_LISTENER_READY = true;
+    window.addEventListener('message', event => {
+        const data = event && event.data || {};
+        if (!data || data.type !== 'cm108-browser-bridge') return;
+        const requestId = String(data.request_id || '');
+        const pending = FB_MONITOR_REMOTE_BRIDGE_PENDING.get(requestId);
+        if (!pending) return;
+        const origin = String(event.origin || '');
+        const googleOrigin = origin === '' || origin === 'null' || origin === 'https://script.google.com' || origin.endsWith('.googleusercontent.com');
+        if (!googleOrigin) return;
+        FB_MONITOR_REMOTE_BRIDGE_PENDING.delete(requestId);
+        clearTimeout(pending.timer);
+        try { pending.iframe.remove(); } catch (e) { }
+        pending.resolve(data.payload || {});
+    });
+};
+const makeFacebookMonitorBridgeId = () => {
+    try {
+        const a = new Uint32Array(4);
+        crypto.getRandomValues(a);
+        return Array.from(a).map(v => v.toString(16).padStart(8,'0')).join('');
+    } catch (e) { return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`; }
+};
+const postFacebookMonitorRemoteBridge = (params = {}, timeoutMs = 26000) => new Promise((resolve, reject) => {
+    ensureFacebookMonitorRemoteBridgeListener();
+    const requestId = makeFacebookMonitorBridgeId();
+    const frameName = `cm108_remote_bridge_${requestId}`;
+    const iframe = document.createElement('iframe');
+    iframe.name = frameName;
+    iframe.setAttribute('aria-hidden','true');
+    iframe.style.cssText = 'position:fixed;width:1px;height:1px;left:-10000px;top:-10000px;border:0;opacity:0;pointer-events:none';
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = getFacebookMonitorRemoteUrl();
+    form.target = frameName;
+    form.style.display = 'none';
+    const values = { browser_action: String(params.browser_action || ''), request_id: requestId, ...params };
+    Object.entries(values).forEach(([key,value]) => {
+        if (value === undefined || value === null) return;
+        const input = document.createElement('input');
+        input.type = 'hidden'; input.name = key; input.value = String(value);
+        form.appendChild(input);
+    });
+    const timer = setTimeout(() => {
+        const pending = FB_MONITOR_REMOTE_BRIDGE_PENDING.get(requestId);
+        if (!pending) return;
+        FB_MONITOR_REMOTE_BRIDGE_PENDING.delete(requestId);
+        try { iframe.remove(); form.remove(); } catch (e) { }
+        reject(new Error('REMOTE_BRIDGE_TIMEOUT'));
+    }, timeoutMs);
+    FB_MONITOR_REMOTE_BRIDGE_PENDING.set(requestId, { resolve, reject, timer, iframe });
+    document.body.appendChild(iframe);
+    document.body.appendChild(form);
+    try { form.submit(); } catch (e) {
+        FB_MONITOR_REMOTE_BRIDGE_PENDING.delete(requestId);
+        clearTimeout(timer);
+        try { iframe.remove(); form.remove(); } catch (_) { }
+        reject(e); return;
+    }
+    setTimeout(() => { try { form.remove(); } catch (e) { } }, 1000);
+});
 
 const FB_MONITOR_REMOTE_JSONP_QUEUES = new Map();
 const sleepFacebookMonitorRemote = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fetchFacebookMonitorRemoteJsonpOnce = (callbackName, params = {}, timeoutMs = 14000) => new Promise((resolve, reject) => {
-    // v0.1.82: Match the callback-only URL that was verified directly against
+    // v0.1.83: Match the callback-only URL that was verified directly against
     // the live Apps Script deployment. Do not send both prefix+callback here;
     // some Android Chromium/WebView builds intermittently fail while Google is
     // following the ContentService redirect when both are present.
-    const callback = String(callbackName || 'cm108RemoteJsonpV182');
+    const callback = String(callbackName || 'cm108RemoteJsonpV183');
     let done = false;
     const script = document.createElement('script');
     let timer = null;
@@ -797,7 +869,7 @@ const fetchFacebookMonitorRemoteJsonpNamed = (callbackName, params = {}, timeout
     // A fixed JSONP function name is reliable with Apps Script, but two requests
     // with the same function name must never overlap. Android networks tend to
     // expose this race more often because the Google redirect can be slower.
-    const callback = String(callbackName || 'cm108RemoteJsonpV182');
+    const callback = String(callbackName || 'cm108RemoteJsonpV183');
     const previous = FB_MONITOR_REMOTE_JSONP_QUEUES.get(callback) || Promise.resolve();
     const task = previous.catch(() => {}).then(async () => {
         let lastError = null;
@@ -822,9 +894,9 @@ const fetchFacebookMonitorRemoteJsonpNamed = (callbackName, params = {}, timeout
 };
 const fetchFacebookMonitorRemoteJsonp = (params = {}, timeoutMs = 18000) => {
     const api = String(params && params.api || '');
-    const callbackName = api === 'auth_challenge' ? 'cm108AuthChallengeV182'
-        : api === 'auth_login' ? 'cm108AuthLoginV182'
-        : 'cm108RemoteJsonpV182';
+    const callbackName = api === 'auth_challenge' ? 'cm108AuthChallengeV183'
+        : api === 'auth_login' ? 'cm108AuthLoginV183'
+        : 'cm108RemoteJsonpV183';
     return fetchFacebookMonitorRemoteJsonpNamed(callbackName, params, timeoutMs);
 };
 const base64UrlFromBytes = bytes => {
@@ -845,19 +917,35 @@ const makeFacebookMonitorRemoteProof = async (password, challenge) => {
     return base64UrlFromBytes(new Uint8Array(signature));
 };
 const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
+    if (FB_MONITOR_IS_ANDROID) {
+        let loginData;
+        try {
+            loginData = await postFacebookMonitorRemoteBridge({
+                browser_action:'login', password:String(password || ''), remember:remember ? '1' : '0'
+            }, 26000);
+        } catch (firstError) {
+            await sleepFacebookMonitorRemote(900);
+            loginData = await postFacebookMonitorRemoteBridge({
+                browser_action:'login', password:String(password || ''), remember:remember ? '1' : '0'
+            }, 30000);
+        }
+        if (!loginData || !loginData.ok || !loginData.token) {
+            const code = String(loginData && loginData.error || '');
+            if (code === 'INVALID_PASSWORD') throw new Error('รหัสผ่านไม่ถูกต้อง');
+            throw new Error(String(loginData && (loginData.message || loginData.error) || 'เข้าสู่ระบบ Google Remote ไม่สำเร็จ'));
+        }
+        return loginData;
+    }
     const challengeData = await fetchFacebookMonitorRemoteJsonp({ api:'auth_challenge' });
     if (!challengeData || !challengeData.ok || !challengeData.challenge) {
         throw new Error(String(challengeData && (challengeData.message || challengeData.error) || 'ขอรหัสยืนยันจาก Google ไม่สำเร็จ'));
     }
-    if (Number(challengeData.protocol_version || 0) < 4) {
-        throw new Error('Google Apps Script ยังเป็นรุ่นเก่า กรุณา Deploy v0.1.82 เป็น New version');
+    if (Number(challengeData.protocol_version || 0) < 5) {
+        throw new Error('Google Apps Script ยังเป็นรุ่นเก่า กรุณา Deploy v0.1.83 เป็น New version');
     }
     const proof = await makeFacebookMonitorRemoteProof(password, challengeData.challenge);
     const loginData = await fetchFacebookMonitorRemoteJsonp({
-        api:'auth_login',
-        challenge:challengeData.challenge,
-        proof:proof,
-        remember:remember ? '1' : '0'
+        api:'auth_login', challenge:challengeData.challenge, proof:proof, remember:remember ? '1' : '0'
     });
     if (!loginData || !loginData.ok || !loginData.token) {
         const code = String(loginData && loginData.error || '');
@@ -870,9 +958,19 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
 
 const fetchFacebookMonitorRemoteFeed = (token, limit = 20) => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
-    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV182', {
+    if (FB_MONITOR_IS_ANDROID) {
+        return postFacebookMonitorRemoteBridge({
+            browser_action:'feed', token:String(token), limit:String(limit)
+        }, 26000).catch(async firstError => {
+            await sleepFacebookMonitorRemote(900);
+            return postFacebookMonitorRemoteBridge({
+                browser_action:'feed', token:String(token), limit:String(limit)
+            }, 30000);
+        });
+    }
+    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV183', {
         api:'feed', token:String(token), limit:String(limit)
-    }, 18000);
+    }, 20000);
 };
 const buildFacebookMonitorRemoteSidebarUrl = () => {
     try {
@@ -1140,6 +1238,7 @@ const FacebookLatestTicker = () => {
     const [remoteItems, setRemoteItems] = useState([]);
     const [remoteAuthState, setRemoteAuthState] = useState(() => loadFacebookMonitorRemoteToken() ? 'loading' : 'login');
     const [remoteUpdatedAt, setRemoteUpdatedAt] = useState(null);
+    const [remotePresence, setRemotePresence] = useState({ online: null, updateEnabled: null, lastSeenAt: null, lastRunAt: null });
     const [remoteError, setRemoteError] = useState('');
     const [remotePassword, setRemotePassword] = useState('');
     const [remoteRemember, setRemoteRemember] = useState(true);
@@ -1231,7 +1330,7 @@ const FacebookLatestTicker = () => {
         });
     };
 
-    // v0.1.82: Dashboard authentication is now direct through the Apps Script
+    // v0.1.83: Dashboard authentication is now direct through the Apps Script
     // JSONP auth API. No navigation/popup/postMessage bridge is required.
 
     useEffect(() => {
@@ -1242,6 +1341,36 @@ const FacebookLatestTicker = () => {
         const timer = setInterval(() => run(true), 30000);
         return () => { active = false; clearInterval(timer); };
     }, [feedMode, retryNonce]);
+
+    // v0.1.83: Safari/Chrome mobile may pause interval timers while the browser
+    // changes Wi-Fi/5G or the tab is backgrounded. Kick an immediate LAN/Cloud
+    // re-check whenever the page becomes active or the network reports a change.
+    useEffect(() => {
+        let lastKick = 0;
+        const kick = () => {
+            if (document.visibilityState === 'hidden') return;
+            const now = Date.now();
+            if (now - lastKick < 800) return;
+            lastKick = now;
+            setRetryNonce(v => v + 1);
+        };
+        const onVisibility = () => { if (document.visibilityState === 'visible') kick(); };
+        window.addEventListener('online', kick);
+        window.addEventListener('offline', kick);
+        window.addEventListener('focus', kick);
+        window.addEventListener('pageshow', kick);
+        document.addEventListener('visibilitychange', onVisibility);
+        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (connection && connection.addEventListener) connection.addEventListener('change', kick);
+        return () => {
+            window.removeEventListener('online', kick);
+            window.removeEventListener('offline', kick);
+            window.removeEventListener('focus', kick);
+            window.removeEventListener('pageshow', kick);
+            document.removeEventListener('visibilitychange', onVisibility);
+            if (connection && connection.removeEventListener) connection.removeEventListener('change', kick);
+        };
+    }, []);
 
     useEffect(() => {
         const syncReadState = (event) => {
@@ -1391,12 +1520,21 @@ const FacebookLatestTicker = () => {
                 permalink: x.permalink || '#'
             }));
             setRemoteItems(items);
-            setRemoteUpdatedAt(data.updated_at || new Date().toISOString());
+            const presenceLastSeen = data.monitor_last_seen_at || null;
+            const presenceLastRun = data.monitor_last_run_at || data.updated_at || null;
+            setRemoteUpdatedAt(presenceLastRun || presenceLastSeen || new Date().toISOString());
+            setRemotePresence({
+                online: typeof data.monitor_online === 'boolean' ? data.monitor_online : null,
+                updateEnabled: typeof data.monitor_update_enabled === 'boolean' ? data.monitor_update_enabled : null,
+                lastSeenAt: presenceLastSeen,
+                lastRunAt: presenceLastRun
+            });
             setRemoteAuthState('ready');
             setRemoteError('');
         } catch (e) {
             console.warn('Google Remote feed error', e);
-            setRemoteError(String(e && e.message || e || 'โหลดข่าว Cloud ไม่สำเร็จ'));
+            const code = String(e && e.message || e || '');
+            setRemoteError(code);
             setRemoteAuthState(remoteItems.length ? 'ready' : 'error');
         }
     };
@@ -1539,7 +1677,7 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.82: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
+    // v0.1.83: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
     // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
     // permission and could incorrectly switch a same-LAN user to Google Remote.
     // All candidates still run in parallel and the first successful one wins.
@@ -1769,7 +1907,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.82: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.83: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1859,7 +1997,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.82: Outside LAN, render Google Remote news directly in our own sidebar.
+    // v0.1.83: Outside LAN, render Google Remote news directly in our own sidebar.
     // No Apps Script iframe is used, avoiding Google Drive/HTML Service iframe failures on mobile.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
         const remoteRows = remoteItems.length ? remoteItems.map(item => {
@@ -1881,10 +2019,14 @@ const FacebookLatestTicker = () => {
                 React.createElement('div', { className: 'fb-monitor-row-title' }, item.headline || '(ไม่มีหัวข้อ)')
             );
         }) : null;
-        const remoteStatus = remoteUpdatedAt ? `Cloud ล่าสุด ${formatFacebookMonitorTime(remoteUpdatedAt)} น.` : 'Google Remote';
+        const remoteLastSeen = remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
+        const remoteStopped = remotePresence.updateEnabled === false || remotePresence.online === false;
+        const remoteStatus = remoteStopped
+            ? `ปิดระบบอัปเดตข่าวแล้ว${remoteLastSeen ? ` · ข่าวถึง ${formatFacebookMonitorTime(remoteLastSeen)} น.` : ''}`
+            : (remoteLastSeen ? `ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.` : 'พร้อมใช้งาน');
         return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
             React.createElement('button', { type:'button', className:'fb-monitor-collapsed-tab', onClick:toggleCollapsed, title:'ขยายข่าวล่าสุดผ่าน Cloud' },
-                React.createElement(Icon,{name:'chevron-left',size:16}), React.createElement('span',null,'ข่าวล่าสุด · Cloud'), React.createElement('span',{className:'fb-monitor-mobile-label'},'นอกวง LAN')),
+                React.createElement(Icon,{name:'chevron-left',size:16}), React.createElement('span',null,'ข่าวล่าสุด · Cloud'), React.createElement('span',{className:'fb-monitor-mobile-label'},'Cloud')),
             React.createElement('div',{className:'fb-monitor-expanded flex flex-col min-h-0 h-full'},
                 React.createElement('div',{className:'fb-monitor-sidebar-head'},
                     React.createElement('div',{className:'fb-monitor-sidebar-headline'},
@@ -1895,8 +2037,7 @@ const FacebookLatestTicker = () => {
                             React.createElement('button',{type:'button',className:'fb-monitor-collapse-btn',onClick:toggleCollapsed,title:'หุบแถบข่าวล่าสุด'},React.createElement(Icon,{name:'chevron-right',size:16}))
                         )
                     ),
-                    React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('span',{className:'fb-monitor-remote-badge'},'Google Remote'),React.createElement('strong',null,remoteStatus)),
-                    React.createElement('div',{className:'text-[9px] leading-tight text-gray-400 mt-1'},'นอกวง LAN · ดึงข่าว Cloud โดยตรง ไม่ใช้ iframe')
+                    React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('span',{className:'fb-monitor-remote-badge'},'Google Remote'),React.createElement('strong',null,remoteStatus))
                 ),
                 remoteAuthState === 'login' ? React.createElement('form',{onSubmit:submitRemoteLogin,className:'p-4 text-center flex-1 flex flex-col items-stretch justify-center gap-3'},
                     React.createElement('div',{className:'text-sm font-bold text-gray-700'},'เชื่อมต่อ Google Remote'),
@@ -1910,7 +2051,7 @@ const FacebookLatestTicker = () => {
                     React.createElement('button',{type:'submit',disabled:remoteLoginBusy||!remotePassword,className:'px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-50'},remoteLoginBusy?'กำลังตรวจสอบ…':'เข้าสู่ระบบ')
                 ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center'},'กำลังโหลดข่าวจาก Google…')
                 : remoteAuthState === 'error' ? React.createElement('div',{className:'p-5 text-center flex-1 flex flex-col items-center justify-center gap-3'},
-                    React.createElement('div',{className:'text-xs text-red-500'},`โหลดข่าว Cloud ไม่สำเร็จ${remoteError ? ` · ${remoteError}` : ''}`),
+                    React.createElement('div',{className:'text-xs text-red-500',title:remoteError || ''},'เชื่อมต่อ Google Remote ไม่สำเร็จ'),
                     React.createElement('button',{type:'button',onClick:()=>setRetryNonce(v=>v+1),className:'px-3 py-2 rounded-lg border text-xs font-bold'},'ลองใหม่'),
                     React.createElement('button',{type:'button',onClick:()=>{clearFacebookMonitorRemoteToken();remoteTokenRef.current='';setRemoteAuthState('login');},className:'text-xs text-blue-600'},'เข้าสู่ระบบใหม่')
                 ) : React.createElement('div',{className:'fb-monitor-sidebar-list-wrap'},
@@ -1989,7 +2130,7 @@ const FacebookLatestTicker = () => {
     const latestCountLabel = displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมด' : `${displayLimit} ข่าวล่าสุด`;
     const latestTitle = displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${displayLimit} ข่าวล่าสุดเพจเชียงใหม่`;
     const lastUpdateLabel = monitorState.updatedAt ? `${formatFacebookMonitorTime(monitorState.updatedAt)} น.` : '-';
-    const statusCopy = `อัปเดตทุก ${monitorState.checkIntervalMinutes || 10} นาที ล่าสุด ${lastUpdateLabel}`;
+    const statusCopy = monitorState.updatedAt ? `ล่าสุด ${lastUpdateLabel}` : 'รออัปเดต';
     const dotClass = monitorState.running ? 'running' : 'online';
 
     const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
@@ -2048,10 +2189,9 @@ const FacebookLatestTicker = () => {
                     )
                 ),
                 React.createElement('div', { className: 'fb-monitor-sidebar-status' },
-                    React.createElement('span', null, ''),
+                    React.createElement('span', null, 'Local'),
                     React.createElement('strong', null, statusCopy)
-                ),
-                React.createElement('div', { className: 'text-[9px] leading-tight text-gray-400 mt-1' }, 'Online เฉพาะตอนเปิดระบบ · LAN เดียวกัน')
+                )
             ),
             React.createElement('div', { className: 'fb-monitor-sidebar-list-wrap' },
                 React.createElement('div', {
