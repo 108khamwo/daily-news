@@ -4,12 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>รวมข่าวรายวัน CM108</title>
-    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0165">
-    <link rel="shortcut icon" href="favicon.ico?v=0165">
-    <meta name="cm108-dashboard-version" content="0.1.65">
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
+    <link rel="shortcut icon" href="favicon.ico?v=0167">
+    <meta name="cm108-dashboard-version" content="0.1.73">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.65';
+        const CURRENT_DASHBOARD_VERSION = '0.1.73';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.65 - latest-news sidebar + floating PiP + read-state */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.73 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -218,6 +218,10 @@
         .fb-monitor-new-badge:hover { background: #1d4ed8; }
         .fb-monitor-sidebar-footer { padding: 8px 10px 10px; border-top: 1px solid #eef2f7; background: #fff; }
         .fb-monitor-all-link { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; transition: background .12s ease; }
+        .fb-monitor-remote-wrap { min-height: 0; flex: 1; position: relative; background: #fff; overflow: hidden; }
+        .fb-monitor-remote-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #fff; }
+        .fb-monitor-remote-badge { display: inline-flex; align-items: center; gap: 5px; color: #64748b; font-size: 9px; font-weight: 700; }
+        .fb-monitor-remote-badge::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.10); }
         .fb-monitor-all-link:hover { background: #dbeafe; }
         .fb-monitor-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: 0 0 8px; }
         .fb-monitor-dot.online { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.12); }
@@ -263,6 +267,7 @@
             .fb-monitor-sidebar.is-collapsed .fb-monitor-collapsed-tab { flex-direction: row; justify-content: space-between; padding: 0 14px; }
             .fb-monitor-sidebar.is-collapsed .fb-monitor-collapsed-tab span { writing-mode: horizontal-tb; transform: none; }
             .fb-monitor-sidebar-list-wrap { height: 226px; flex: none; }
+            .fb-monitor-remote-wrap { height: 300px; flex: none; }
             .fb-monitor-ticker-viewport { height: 226px; flex: none; }
             .fb-monitor-ticker-row { min-height: 56px; padding: 7px 12px; }
             .fb-monitor-mobile-label { display: inline; }
@@ -723,9 +728,26 @@ const searchAllExistingNews = async (rawQuery) => {
 // --- Facebook News Chiang Mai Monitor 24 Hrs.: ข่าวล่าสุดในวง LAN ---
 // ค่าเริ่มต้นของเครื่อง Admin ในวง LAN (เปลี่ยนได้จากปุ่ม "ตั้งค่า IP" เมื่อเชื่อมต่อไม่ได้)
 const FB_MONITOR_MDNS_URL = 'http://cm108-monitor.local:8787';
+const FB_MONITOR_LOOPBACK_URL = 'http://127.0.0.1:8787';
 const FB_MONITOR_IP_FALLBACK_URL = 'http://192.168.1.102:8787';
 const FB_MONITOR_OLD_DEFAULT_URL = 'http://192.168.1.7:8787';
 const FB_MONITOR_URL = FB_MONITOR_MDNS_URL;
+// v0.1.73: Cloud fallback used only when the Local Monitor cannot be reached.
+// This is the existing Google Apps Script viewer; login remains enforced inside Google.
+const FB_MONITOR_REMOTE_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbymdnOF5LRlctMC4dQRha9gOHpUgSvogyIGLj0AP79qFNTcTfeiDPpENMYRtgE21y-5YQ/exec';
+const getFacebookMonitorRemoteUrl = () => {
+    try {
+        return String(localStorage.getItem('fb_monitor_remote_url') || FB_MONITOR_REMOTE_DEFAULT_URL).trim();
+    } catch (e) { return FB_MONITOR_REMOTE_DEFAULT_URL; }
+};
+const buildFacebookMonitorRemoteSidebarUrl = () => {
+    try {
+        const u = new URL(getFacebookMonitorRemoteUrl());
+        u.searchParams.set('view', 'sidebar');
+        u.searchParams.set('dashboard', CURRENT_DASHBOARD_VERSION);
+        return u.toString();
+    } catch (e) { return getFacebookMonitorRemoteUrl(); }
+};
 const FB_MONITOR_IS_APPLE_MOBILE = (() => {
     const ua = navigator.userAgent || '';
     const platform = navigator.platform || '';
@@ -753,6 +775,13 @@ const buildFacebookMonitorLocalDashboardUrl = (monitorBase) => {
         return `${String(monitorBase || FB_MONITOR_URL).replace(/\/$/, '')}/daily-news`;
     }
 };
+const buildFacebookMonitorAllNewsUrl = (monitorBase) => {
+    try {
+        return new URL('/', monitorBase || FB_MONITOR_URL).toString();
+    } catch (e) {
+        return `${String(monitorBase || FB_MONITOR_URL).replace(/\/$/, '')}/`;
+    }
+};
 const getFacebookMonitorSavedFallback = () => {
     try {
         const saved = localStorage.getItem('fb_monitor_base_url');
@@ -765,6 +794,11 @@ const getFacebookMonitorSavedFallback = () => {
         return clean;
     } catch (e) { return ''; }
 };
+const getFacebookMonitorSavedHost = () => {
+    try {
+        return String(localStorage.getItem('fb_monitor_system_url') || '').trim().replace(/\/$/, '');
+    } catch (e) { return ''; }
+};
 const getFacebookMonitorBase = () => {
     // Local Dashboard is always same-origin. On GitHub use the stable mDNS name
     // first, then fall back to the last saved numeric IP if the company network
@@ -775,9 +809,108 @@ const getFacebookMonitorBase = () => {
 const getFacebookMonitorCandidates = (preferred = '') => {
     if (FB_MONITOR_IS_LOCAL_DASHBOARD) return [window.location.origin];
     const saved = getFacebookMonitorSavedFallback();
-    const raw = [preferred, FB_MONITOR_MDNS_URL, saved, FB_MONITOR_IP_FALLBACK_URL];
+    const savedHost = getFacebookMonitorSavedHost();
+    // v0.1.69: loopback makes the same-PC case immune to DHCP/IP changes.
+    // A saved Windows hostname then gives other PCs a second dynamic-name path.
+    const raw = [FB_MONITOR_LOOPBACK_URL, preferred, savedHost, FB_MONITOR_MDNS_URL, saved, FB_MONITOR_IP_FALLBACK_URL];
     const seen = new Set();
     return raw.map(v => String(v || '').trim().replace(/\/$/, '')).filter(v => v && !seen.has(v) && seen.add(v));
+};
+// v0.1.69: the "ดูข่าวทั้งหมด" button must use a numeric LAN address when
+// available. mDNS (.local) is useful for discovery, but Windows/Edge may fail
+// to resolve it when a new tab is opened even though the API was reachable via
+// a fallback IP. The backend already reports its current numeric LAN URL.
+const normalizeFacebookMonitorBase = (value) => String(value || '').trim().replace(/\/$/, '');
+const isFacebookMonitorMdnsBase = (value) => {
+    try { return new URL(value).hostname.toLowerCase().endsWith('.local'); }
+    catch (e) { return /\.local(?::\d+)?$/i.test(normalizeFacebookMonitorBase(value)); }
+};
+const resolveFacebookMonitorAllNewsBase = (snapshot = null, usedBase = '') => {
+    const candidates = [
+        snapshot && snapshot.lan_url,
+        usedBase,
+        getFacebookMonitorSavedFallback(),
+        FB_MONITOR_IP_FALLBACK_URL
+    ];
+    for (const value of candidates) {
+        const clean = normalizeFacebookMonitorBase(value);
+        if (!clean || isFacebookMonitorMdnsBase(clean)) continue;
+        try {
+            const u = new URL(clean);
+            if (u.protocol === 'http:' || u.protocol === 'https:') return u.origin;
+        } catch (e) { }
+    }
+    return FB_MONITOR_IP_FALLBACK_URL;
+};
+// v0.1.69: If DHCP changes the numeric address and both mDNS + the saved IP fail,
+// scan only the last-known /24 LAN. This runs only after normal connection
+// candidates fail, so it does not add traffic during normal 10-minute updates.
+const getFacebookMonitorIpv4Info = (value) => {
+    try {
+        const host = new URL(normalizeFacebookMonitorBase(value)).hostname;
+        const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+        if (!m) return null;
+        const octets = m.slice(1).map(Number);
+        if (octets.some(v => v < 0 || v > 255)) return null;
+        const [a,b,c,d] = octets;
+        const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+        if (!isPrivate) return null;
+        return { prefix: `${a}.${b}.${c}`, host: d };
+    } catch (e) { return null; }
+};
+const rememberFacebookMonitorNetwork = (data, usedBase = '') => {
+    try {
+        const lan = normalizeFacebookMonitorBase(data && data.lan_url);
+        if (lan && !isFacebookMonitorMdnsBase(lan)) localStorage.setItem('fb_monitor_base_url', lan);
+        const systemUrl = normalizeFacebookMonitorBase(data && data.system_url);
+        if (systemUrl && !isFacebookMonitorMdnsBase(systemUrl)) localStorage.setItem('fb_monitor_system_url', systemUrl);
+        if (!lan) {
+            const cleanUsed = normalizeFacebookMonitorBase(usedBase);
+            if (getFacebookMonitorIpv4Info(cleanUsed)) localStorage.setItem('fb_monitor_base_url', cleanUsed);
+        }
+    } catch (e) { }
+};
+const discoverFacebookMonitorBySubnet = async (preferredBase = '') => {
+    if (FB_MONITOR_IS_LOCAL_DASHBOARD || FB_MONITOR_IS_IOS_GITHUB) return null;
+    const seeds = [
+        getFacebookMonitorSavedFallback(),
+        preferredBase,
+        FB_MONITOR_IP_FALLBACK_URL
+    ];
+    const subnetMap = new Map();
+    for (const seed of seeds) {
+        const info = getFacebookMonitorIpv4Info(seed);
+        if (info && !subnetMap.has(info.prefix)) subnetMap.set(info.prefix, info.host);
+    }
+    for (const [prefix, lastHost] of subnetMap) {
+        const hosts = [];
+        const seen = new Set();
+        const pushHost = h => { if (h >= 1 && h <= 254 && !seen.has(h)) { seen.add(h); hosts.push(h); } };
+        // DHCP commonly moves only a few addresses; test neighbours first.
+        pushHost(lastHost);
+        for (let delta = 1; delta <= 20; delta++) { pushHost(lastHost + delta); pushHost(lastHost - delta); }
+        for (let h = 1; h <= 254; h++) pushHost(h);
+        const batchSize = 32;
+        for (let start = 0; start < hosts.length; start += batchSize) {
+            const batch = hosts.slice(start, start + batchSize);
+            const results = await Promise.all(batch.map(async h => {
+                const base = `http://${prefix}.${h}:8787`;
+                try {
+                    const response = await fetchFacebookMonitor(`${base}/api/public/network`, 900);
+                    if (!response.ok) return null;
+                    const data = await response.json();
+                    if (!data || data.ok !== true || !data.api_revision) return null;
+                    return { base, data };
+                } catch (e) { return null; }
+            }));
+            const found = results.find(Boolean);
+            if (found) {
+                rememberFacebookMonitorNetwork(found.data, found.base);
+                return found;
+            }
+        }
+    }
+    return null;
 };
 const getFacebookMonitorPermissionState = async () => {
     if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
@@ -852,6 +985,7 @@ const FacebookLatestTicker = () => {
     const [permissionState, setPermissionState] = useState('unknown');
     const [manualConnecting, setManualConnecting] = useState(false);
     const [iosLocalFallback, setIosLocalFallback] = useState(false);
+    const [feedMode, setFeedMode] = useState('detecting'); // detecting | lan | remote
     const [floatingTarget, setFloatingTarget] = useState(null);
     const [floatingMode, setFloatingMode] = useState('');
     const [readItemKeys, setReadItemKeys] = useState(() => loadFacebookMonitorReadKeys());
@@ -860,6 +994,7 @@ const FacebookLatestTicker = () => {
         catch (e) { return false; }
     });
     const monitorBaseRef = useRef(getFacebookMonitorBase());
+    const [allNewsBase, setAllNewsBase] = useState(() => resolveFacebookMonitorAllNewsBase(null, getFacebookMonitorBase()));
     const knownItemIdsRef = useRef(new Set());
     const initializedRef = useRef(false);
     const lastUpdatedAtRef = useRef(null);
@@ -871,8 +1006,11 @@ const FacebookLatestTicker = () => {
     const pendingNewCountRef = useRef(0);
     const connectionWarningTimerRef = useRef(null);
     const everConnectedRef = useRef(false);
+    const lastSubnetDiscoveryAtRef = useRef(0);
+    const subnetDiscoveryBusyRef = useRef(false);
     const localReturnUrlRef = useRef(getFacebookMonitorReturnUrl());
     const floatingWindowRef = useRef(null);
+    const remoteFloatingWindowRef = useRef(null);
     const monitorBase = monitorBaseRef.current;
 
     const normalizeDisplayLimit = (value) => {
@@ -1059,6 +1197,40 @@ const FacebookLatestTicker = () => {
         }
     };
 
+    const openRemoteFloatingTicker = async () => {
+        const existing = remoteFloatingWindowRef.current;
+        if (existing && !existing.closed) { try { existing.focus(); } catch (e) { } return; }
+        let w = null;
+        try {
+            if (window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
+                w = await window.documentPictureInPicture.requestWindow({ width: 420, height: 720 });
+            } else {
+                w = window.open(getFacebookMonitorRemoteUrl(), 'cm108RemoteNewsWindow', 'popup=yes,width=420,height=720,resizable=yes,scrollbars=yes');
+                if (!w) throw new Error('popup-blocked');
+                remoteFloatingWindowRef.current = w;
+                return;
+            }
+            remoteFloatingWindowRef.current = w;
+            const doc = w.document;
+            doc.title = 'CM108 Remote News';
+            doc.documentElement.lang = 'th';
+            doc.head.innerHTML = '<meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#fff}iframe{display:block;width:100%;height:100%;border:0;background:#fff}</style>';
+            doc.body.innerHTML = '';
+            const frame = doc.createElement('iframe');
+            frame.src = buildFacebookMonitorRemoteSidebarUrl();
+            frame.title = 'CM108 Remote News';
+            frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin');
+            doc.body.appendChild(frame);
+            const onClosed = () => { if (remoteFloatingWindowRef.current === w) remoteFloatingWindowRef.current = null; };
+            w.addEventListener('pagehide', onClosed, { once: true });
+            w.addEventListener('unload', onClosed, { once: true });
+        } catch (e) {
+            if (w && !w.closed) { try { w.close(); } catch (_) { } }
+            remoteFloatingWindowRef.current = null;
+            window.open(getFacebookMonitorRemoteUrl(), '_blank', 'noopener');
+        }
+    };
+
     // v0.1.49: read the Admin display setting first, then request exactly that
     // amount of news. This makes 10/20/30/all authoritative and avoids any
     // stale/default LIMIT in /api/public/latest forcing the sidebar to 20.
@@ -1087,7 +1259,9 @@ const FacebookLatestTicker = () => {
                 history_hours: publicConfig.history_hours ?? latestData.history_hours,
                 monitor_version: publicConfig.version || latestData.version || null,
                 mdns_url: publicConfig.mdns_url || latestData.mdns_url || FB_MONITOR_MDNS_URL,
-                lan_url: publicConfig.lan_url || latestData.lan_url || null
+                lan_url: publicConfig.lan_url || latestData.lan_url || null,
+                system_hostname: publicConfig.system_hostname || latestData.system_hostname || null,
+                system_url: publicConfig.system_url || latestData.system_url || null
             };
         }
 
@@ -1111,29 +1285,102 @@ const FacebookLatestTicker = () => {
         const candidates = getFacebookMonitorCandidates(monitorBaseRef.current || monitorBase);
         for (let i = 0; i < candidates.length; i++) {
             const base = candidates[i];
-            const tryTimeout = FB_MONITOR_IS_IOS_GITHUB ? Math.min(timeoutMs, 3500) : (base === FB_MONITOR_MDNS_URL ? Math.min(timeoutMs, 6000) : (i <= 1 ? timeoutMs : Math.min(timeoutMs, 5000)));
+            let tryTimeout;
+            if (FB_MONITOR_IS_IOS_GITHUB) tryTimeout = Math.min(timeoutMs, 3500);
+            else if (base === FB_MONITOR_LOOPBACK_URL) tryTimeout = Math.min(timeoutMs, 1400);
+            else if (base === FB_MONITOR_MDNS_URL) tryTimeout = Math.min(timeoutMs, 4500);
+            else tryTimeout = i <= 2 ? Math.min(timeoutMs, 5000) : Math.min(timeoutMs, 3500);
             try {
                 const data = await fetchMonitorSnapshot(base, tryTimeout);
                 monitorBaseRef.current = base;
+                rememberFacebookMonitorNetwork(data, base);
                 return { data, base };
             } catch (error) {
                 lastError = error;
             }
         }
+        // Normal candidates failed. The saved numeric address may be stale after
+        // DHCP renewal, so discover the same Monitor on the last-known subnet.
+        const discovered = await discoverFacebookMonitorBySubnet(monitorBaseRef.current || monitorBase);
+        if (discovered && discovered.base) {
+            try {
+                const data = await fetchMonitorSnapshot(discovered.base, Math.min(timeoutMs, 5000));
+                monitorBaseRef.current = discovered.base;
+                rememberFacebookMonitorNetwork({ ...discovered.data, ...data }, discovered.base);
+                return { data: { ...discovered.data, ...data }, base: discovered.base };
+            } catch (error) { lastError = error; }
+        }
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
+    // v0.1.73: quick reachability probe. All known LAN candidates are checked in
+    // parallel so an Internet user falls back to Google within ~2 seconds instead
+    // of waiting for a full LAN/subnet scan. A slower subnet recovery is throttled
+    // and runs in the background only once every 5 minutes.
+    const fetchQuickMonitorSnapshot = async () => {
+        const candidates = getFacebookMonitorCandidates(monitorBaseRef.current || monitorBase);
+        const checks = candidates.map(async base => {
+            const timeout = base === FB_MONITOR_LOOPBACK_URL ? 900 : (base === FB_MONITOR_MDNS_URL ? 1800 : 1600);
+            try {
+                const data = await fetchMonitorSnapshot(base, timeout);
+                return { data, base };
+            } catch (e) { return null; }
+        });
+        const results = await Promise.all(checks);
+        const found = results.find(Boolean);
+        if (!found) throw new Error('ไม่พบ Monitor ใน LAN');
+        monitorBaseRef.current = found.base;
+        rememberFacebookMonitorNetwork(found.data, found.base);
+        return found;
+    };
+
+    const recoverLanBySubnetInBackground = async () => {
+        if (FB_MONITOR_IS_LOCAL_DASHBOARD || FB_MONITOR_IS_IOS_GITHUB || subnetDiscoveryBusyRef.current) return;
+        const now = Date.now();
+        if ((now - lastSubnetDiscoveryAtRef.current) < 5 * 60 * 1000) return;
+        lastSubnetDiscoveryAtRef.current = now;
+        subnetDiscoveryBusyRef.current = true;
+        try {
+            const discovered = await discoverFacebookMonitorBySubnet(monitorBaseRef.current || monitorBase);
+            if (discovered && discovered.base) {
+                const data = await fetchMonitorSnapshot(discovered.base, 4000);
+                monitorBaseRef.current = discovered.base;
+                rememberFacebookMonitorNetwork({ ...discovered.data, ...data }, discovered.base);
+                setAllNewsBase(resolveFacebookMonitorAllNewsBase(data, discovered.base));
+                setFeedMode('lan');
+                setMonitorState({
+                    loading: false, connected: true, running: Boolean(data.running), updatedAt: data.updated_at || null,
+                    checkIntervalMinutes: Math.max(1, Number(data.check_interval_minutes) || 10),
+                    displayLimit: normalizeDisplayLimit(data.display_limit)
+                });
+                const limit = normalizeDisplayLimit(data.display_limit);
+                const items = applyDisplayLimit(Array.isArray(data.items) ? data.items : [], limit);
+                initializedRef.current = true;
+                displayLimitRef.current = limit;
+                knownItemIdsRef.current = new Set(items.map(getItemKey));
+                setPlayItems(items);
+            }
+        } catch (e) {
+            // Staying on Cloud is expected when the user is really outside the LAN.
+        } finally { subnetDiscoveryBusyRef.current = false; }
+    };
+
     useEffect(() => {
-        const shouldReserveSpace = monitorState.connected && !collapsed && !floatingTarget;
+        const shouldReserveSpace = (monitorState.connected || feedMode === 'remote') && !collapsed && !floatingTarget;
         document.documentElement.classList.toggle('fb-monitor-sidebar-open', shouldReserveSpace);
         return () => document.documentElement.classList.remove('fb-monitor-sidebar-open');
-    }, [monitorState.connected, collapsed, floatingTarget]);
+    }, [monitorState.connected, feedMode, collapsed, floatingTarget]);
 
     useEffect(() => () => {
         const floatWindow = floatingWindowRef.current;
+        const remoteFloatWindow = remoteFloatingWindowRef.current;
         floatingWindowRef.current = null;
+        remoteFloatingWindowRef.current = null;
         if (floatWindow && !floatWindow.closed) {
             try { floatWindow.close(); } catch (e) { }
+        }
+        if (remoteFloatWindow && !remoteFloatWindow.closed) {
+            try { remoteFloatWindow.close(); } catch (e) { }
         }
     }, []);
 
@@ -1155,10 +1402,14 @@ const FacebookLatestTicker = () => {
                 if (alive) setPermissionState(pstate);
                 // v0.1.43: รอบแรกเผื่อเวลาให้ผู้ใช้กด Allow ที่ Local Network Access
                 // เดิม 3.5 วินาทีสั้นเกินไปและอาจตัด request ระหว่าง permission prompt
-                const result = await fetchAvailableMonitorSnapshot(initializedRef.current ? 8000 : 25000);
+                const result = await fetchQuickMonitorSnapshot();
                 const data = result.data;
                 const usedMonitorBase = result.base;
                 if (!alive) return;
+                const nextAllNewsBase = resolveFacebookMonitorAllNewsBase(data, usedMonitorBase);
+                setAllNewsBase(nextAllNewsBase);
+                setFeedMode('lan');
+                rememberFacebookMonitorNetwork(data, usedMonitorBase);
 
                 // iPhone/iPad: if Safari can confirm that the Monitor is online,
                 // move to the same-origin local dashboard. This avoids HTTPS ->
@@ -1262,20 +1513,19 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // Safari/iOS can block the HTTPS GitHub page from probing an HTTP
-                // LAN address even when the IP is correct. Do not show the misleading
-                // "ตั้งค่า IP" warning there. Keep the normal news page and offer a
-                // one-tap local link as a fallback.
-                if (FB_MONITOR_IS_IOS_GITHUB) {
-                    setIosLocalFallback(true);
+                // v0.1.73: no warning/prompt when the LAN is simply unreachable.
+                // Quietly use the authenticated Google Remote viewer instead, while
+                // continuing to probe for LAN recovery in the background.
+                if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
+                    setFeedMode('remote');
+                    setIosLocalFallback(false);
                     setShowConnectionWarning(false);
                     setShowWarningDetails(false);
+                    recoverLanBySubnetInBackground();
                     return;
                 }
 
                 getFacebookMonitorPermissionState().then(state => { if (alive) setPermissionState(state); }).catch(() => {});
-                // v0.1.40: แม้ยังไม่เคยเชื่อมต่อสำเร็จ ก็ต้องมีปุ่มเล็กให้ตั้งค่า IP ได้
-                // ไม่แสดงแถบข่าวใหญ่จนกว่าจะต่อ Monitor สำเร็จ
                 if (!connectionWarningTimerRef.current) {
                     connectionWarningTimerRef.current = setTimeout(() => {
                         connectionWarningTimerRef.current = null;
@@ -1307,6 +1557,10 @@ const FacebookLatestTicker = () => {
             const result = await fetchAvailableMonitorSnapshot(30000);
             const data = result.data;
             const usedMonitorBase = result.base;
+            const nextAllNewsBase = resolveFacebookMonitorAllNewsBase(data, usedMonitorBase);
+            setAllNewsBase(nextAllNewsBase);
+            setFeedMode('lan');
+            rememberFacebookMonitorNetwork(data, usedMonitorBase);
             if (FB_MONITOR_IS_IOS_GITHUB) {
                 window.location.replace(buildFacebookMonitorLocalDashboardUrl(usedMonitorBase || FB_MONITOR_MDNS_URL));
                 return;
@@ -1349,9 +1603,64 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // iOS/Safari: keep the GitHub news page normal. If the direct LAN probe is
-    // blocked, never ask for the IP again; the saved IP is already used. Offer
-    // a small direct local link instead. If Monitor is off, the sidebar stays hidden.
+    // v0.1.73: Outside the LAN, replace only the right latest-news panel with
+    // the Google Apps Script viewer. The iframe keeps Google login/auth isolated;
+    // no viewer password or secret is ever embedded in this public Dashboard.
+    if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
+        const remoteUrl = buildFacebookMonitorRemoteSidebarUrl();
+        return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
+            React.createElement('button', {
+                type: 'button',
+                className: 'fb-monitor-collapsed-tab',
+                onClick: toggleCollapsed,
+                title: 'ขยายข่าวล่าสุดผ่าน Cloud'
+            },
+                React.createElement(Icon, { name: 'chevron-left', size: 16 }),
+                React.createElement('span', null, 'ข่าวล่าสุด · Cloud'),
+                React.createElement('span', { className: 'fb-monitor-mobile-label' }, 'นอกวง LAN')
+            ),
+            React.createElement('div', { className: 'fb-monitor-expanded flex flex-col min-h-0 h-full' },
+                React.createElement('div', { className: 'fb-monitor-sidebar-head' },
+                    React.createElement('div', { className: 'fb-monitor-sidebar-headline' },
+                        React.createElement('span', { className: 'fb-monitor-dot online' }),
+                        React.createElement('div', { className: 'fb-monitor-sidebar-title-text' }, 'ข่าวล่าสุดเพจเชียงใหม่'),
+                        React.createElement('div', { className: 'fb-monitor-head-actions' },
+                            React.createElement('button', {
+                                type: 'button',
+                                className: 'fb-monitor-float-btn',
+                                onClick: openRemoteFloatingTicker,
+                                title: 'ลอยข่าว Remote บนจอแบบ PiP'
+                            }, React.createElement(Icon, { name: 'picture-in-picture-2', size: 16 })),
+                            React.createElement('button', {
+                            type: 'button',
+                            className: 'fb-monitor-collapse-btn',
+                            onClick: toggleCollapsed,
+                            title: 'หุบแถบข่าวล่าสุด'
+                        }, React.createElement(Icon, { name: 'chevron-right', size: 16 }))
+                        )
+                    ),
+                    React.createElement('div', { className: 'fb-monitor-sidebar-status' },
+                        React.createElement('span', { className: 'fb-monitor-remote-badge' }, 'Google Remote'),
+                        React.createElement('strong', null, 'เชื่อมต่อจาก Internet')
+                    ),
+                    React.createElement('div', { className: 'text-[9px] leading-tight text-gray-400 mt-1' }, 'ตรวจ LAN อัตโนมัติ · ถ้ากลับเข้าวงเดิมจะสลับ Local เอง')
+                ),
+                React.createElement('div', { className: 'fb-monitor-remote-wrap' },
+                    React.createElement('iframe', {
+                        className: 'fb-monitor-remote-frame',
+                        src: remoteUrl,
+                        title: 'CM108 Remote News',
+                        loading: 'eager',
+                        referrerPolicy: 'no-referrer',
+                        allow: 'clipboard-read; clipboard-write',
+                        sandbox: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin'
+                    })
+                )
+            )
+        );
+    }
+
+    // Legacy iOS fallback remains only for installations without Remote URL.
     if (!monitorState.connected && FB_MONITOR_IS_IOS_GITHUB && iosLocalFallback) {
         const localUrl = buildFacebookMonitorLocalDashboardUrl(FB_MONITOR_MDNS_URL);
         const ipFallbackBase = getFacebookMonitorSavedFallback() || FB_MONITOR_IP_FALLBACK_URL;
@@ -1505,7 +1814,7 @@ const FacebookLatestTicker = () => {
             ),
             React.createElement('div', { className: 'fb-monitor-sidebar-footer' },
                 React.createElement('a', {
-                    href: monitorBase || '#',
+                    href: allNewsBase ? buildFacebookMonitorAllNewsUrl(allNewsBase) : '#',
                     target: '_blank',
                     rel: 'noopener',
                     className: 'fb-monitor-all-link'
@@ -1545,7 +1854,7 @@ const FacebookLatestTicker = () => {
                 pendingNewCount > 0 && browsingOlder && React.createElement('button', { type: 'button', className: 'fb-pip-new', onClick: () => scrollToLatest('smooth') }, `↑ มีข่าวใหม่ ${pendingNewCount} ข่าว`)
             ),
             React.createElement('div', { className: 'fb-pip-footer' },
-                React.createElement('a', { href: monitorBase || '#', target: '_blank', rel: 'noopener' }, 'ดูข่าวทั้งหมด ↗')
+                React.createElement('a', { href: allNewsBase ? buildFacebookMonitorAllNewsUrl(allNewsBase) : '#', target: '_blank', rel: 'noopener' }, 'ดูข่าวทั้งหมด ↗')
             )
         ),
         floatingTarget
