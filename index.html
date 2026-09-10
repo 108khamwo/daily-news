@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.88">
+    <meta name="cm108-dashboard-version" content="0.1.89">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.88';
+        const CURRENT_DASHBOARD_VERSION = '0.1.89';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -278,6 +278,52 @@
             .fb-monitor-desktop-label { display: none; }
         }
         @media (max-width: 640px) {
+            html.cm108-android .cm108-topbar {
+                min-height: 58px;
+                padding: 8px 10px;
+                gap: 6px;
+            }
+            html.cm108-android .cm108-topbar-brand { gap: 8px; }
+            html.cm108-android .cm108-topbar-brand > div:first-child {
+                padding: 7px;
+                border-radius: 12px;
+            }
+            html.cm108-android .cm108-topbar-title {
+                font-size: 14px !important;
+                line-height: 1.15 !important;
+                white-space: nowrap;
+                word-break: normal;
+            }
+            html.cm108-android .cm108-topbar-subtitle {
+                font-size: 8.5px !important;
+                line-height: 1.1 !important;
+                white-space: nowrap;
+                letter-spacing: 0;
+                margin-top: 3px;
+            }
+            html.cm108-android .cm108-topbar-actions { gap: 6px; }
+            html.cm108-android .cm108-topbar-editbtn {
+                padding: 7px 9px !important;
+                font-size: 11px !important;
+                gap: 4px !important;
+                min-height: 38px;
+            }
+            html.cm108-android .cm108-topbar-editbtn svg {
+                width: 15px !important;
+                height: 15px !important;
+            }
+            html.cm108-android .cm108-topbar-plusbtn {
+                width: 40px !important;
+                height: 40px !important;
+                min-width: 40px !important;
+                min-height: 40px !important;
+            }
+            html.cm108-android .cm108-topbar-plusbtn svg {
+                width: 17px !important;
+                height: 17px !important;
+            }
+        }
+        @media (max-width: 640px) {
             .fb-dashboard-root nav { padding-top: 10px; padding-bottom: 10px; }
             .fb-dashboard-root nav h1 { font-size: 15px; }
             .fb-dashboard-root nav .text-orange-500 { font-size: 10px; }
@@ -328,6 +374,13 @@ const isIOSMobile = () => {
     const isIPadOS = /iPad/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     return isIPhoneOrIPod || isIPadOS;
 };
+const isAndroidMobile = () => {
+    if (typeof navigator === 'undefined') return false;
+    return /Android/i.test(navigator.userAgent || '');
+};
+if (isAndroidMobile()) {
+    try { document.documentElement.classList.add('cm108-android'); } catch (e) {}
+}
 // บันทึกรูปให้รองรับ Safari บน iPhone/iPad รุ่นใหม่
 // iOS ใช้ Share Sheet โดยส่งไฟล์ PNG ต้นฉบับจาก Canvas โดยตรง
 const canvasToBlob = (canvas, type = 'image/png', quality = 0.95) => {
@@ -2381,19 +2434,19 @@ const App = () => {
                     "\u0E41\u0E01\u0E49\u0E42\u0E25\u0E42\u0E01\u0E49 / \u0E41\u0E1A\u0E48\u0E07\u0E2A\u0E35\u0E15\u0E32\u0E21\u0E27\u0E31\u0E19")),
             React.createElement("button", { onClick: () => setShowUpdateAlert(false), className: "p-1.5 hover:bg-white/20 rounded-full transition-colors shrink-0 ml-2", title: "\u0E1B\u0E34\u0E14\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19" },
                 React.createElement(Icon, { name: "x", size: 16 })))),
-        React.createElement("nav", { className: "bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-40 px-3 sm:px-4 md:px-8 py-3 min-h-16 flex flex-row items-center justify-between gap-2 sm:gap-3 border-b border-gray-100" },
-            React.createElement("div", { className: "flex items-center gap-3 cursor-pointer min-w-0 flex-1", onClick: () => { setEditingItem(null); setView('dashboard'); } },
+        React.createElement("nav", { className: "cm108-topbar bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-40 px-3 sm:px-4 md:px-8 py-3 min-h-16 flex flex-row items-center justify-between gap-2 sm:gap-3 border-b border-gray-100" },
+            React.createElement("div", { className: "cm108-topbar-brand flex items-center gap-3 cursor-pointer min-w-0 flex-1", onClick: () => { setEditingItem(null); setView('dashboard'); } },
                 React.createElement("div", { className: "bg-gradient-to-tr from-blue-600 to-blue-500 p-2 rounded-xl text-white shadow-md shadow-blue-200 shrink-0" },
                     React.createElement(Icon, { name: "newspaper", size: 22 })),
                 React.createElement("div", { className: "flex flex-col min-w-0" },
-                    React.createElement("h1", { className: "text-base sm:text-lg font-bold text-gray-800 tracking-tight leading-tight break-words max-w-full" }, "\u0E23\u0E27\u0E21\u0E02\u0E48\u0E32\u0E27\u0E23\u0E32\u0E22\u0E27\u0E31\u0E19 CM108"),
-                    React.createElement("span", { className: "text-[10px] text-orange-500 font-bold mt-1 tracking-wide leading-tight max-w-full" }, "*\u0E02\u0E48\u0E32\u0E27\u0E08\u0E30\u0E16\u0E39\u0E01\u0E25\u0E1A\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E2D\u0E32\u0E22\u0E38\u0E40\u0E01\u0E34\u0E19 60 \u0E27\u0E31\u0E19"))),
-            React.createElement("div", { className: "flex items-center gap-2 sm:gap-3 justify-end shrink-0" },
-                view === 'dashboard' && (React.createElement("button", { onClick: () => setView('standalone-editor'), className: "bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 sm:px-3.5 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-1.5 md:gap-2 transition-all active:scale-95 text-[13px] sm:text-sm whitespace-nowrap shrink-0", title: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E41\u0E01\u0E49\u0E1B\u0E01\u0E2D\u0E34\u0E2A\u0E23\u0E30" },
+                    React.createElement("h1", { className: "cm108-topbar-title text-base sm:text-lg font-bold text-gray-800 tracking-tight leading-tight break-words max-w-full" }, "\u0E23\u0E27\u0E21\u0E02\u0E48\u0E32\u0E27\u0E23\u0E32\u0E22\u0E27\u0E31\u0E19 CM108"),
+                    React.createElement("span", { className: "cm108-topbar-subtitle text-[10px] text-orange-500 font-bold mt-1 tracking-wide leading-tight max-w-full" }, "*\u0E02\u0E48\u0E32\u0E27\u0E08\u0E30\u0E16\u0E39\u0E01\u0E25\u0E1A\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E2D\u0E32\u0E22\u0E38\u0E40\u0E01\u0E34\u0E19 60 \u0E27\u0E31\u0E19"))),
+            React.createElement("div", { className: "cm108-topbar-actions flex items-center gap-2 sm:gap-3 justify-end shrink-0" },
+                view === 'dashboard' && (React.createElement("button", { onClick: () => setView('standalone-editor'), className: "cm108-topbar-editbtn bg-white border border-gray-200 text-gray-700 hover:text-indigo-600 px-3 sm:px-3.5 md:px-4 py-2 rounded-full font-bold shadow-sm flex items-center gap-1.5 md:gap-2 transition-all active:scale-95 text-[13px] sm:text-sm whitespace-nowrap shrink-0", title: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E41\u0E01\u0E49\u0E1B\u0E01\u0E2D\u0E34\u0E2A\u0E23\u0E30" },
                     React.createElement(Icon, { name: "image-plus", size: 18 }),
                     React.createElement("span", { className: "sm:hidden whitespace-nowrap" }, "\u0E41\u0E01\u0E49\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E02\u0E48\u0E32\u0E27"),
                     React.createElement("span", { className: "hidden sm:inline" }, "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E1A\u0E19\u0E1B\u0E01\u0E02\u0E48\u0E32\u0E27"))),
-                view === 'dashboard' ? (React.createElement("button", { onClick: () => setView('admin'), className: "bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 sm:w-auto sm:h-auto px-0 sm:px-4 md:px-5 py-0 sm:py-2 rounded-full font-bold shadow-md shadow-blue-200/50 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm shrink-0" },
+                view === 'dashboard' ? (React.createElement("button", { onClick: () => setView('admin'), className: "cm108-topbar-plusbtn bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 sm:w-auto sm:h-auto px-0 sm:px-4 md:px-5 py-0 sm:py-2 rounded-full font-bold shadow-md shadow-blue-200/50 flex items-center justify-center gap-2 transition-all active:scale-95 text-sm shrink-0" },
                     React.createElement(Icon, { name: "plus", size: 18 }),
                     " ",
                     React.createElement("span", { className: "hidden sm:inline" }, "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E02\u0E48\u0E32\u0E27\u0E43\u0E2B\u0E21\u0E48"))) : (React.createElement("button", { onClick: () => { setEditingItem(null); setView('dashboard'); }, className: "text-gray-500 hover:text-gray-800 font-bold flex items-center gap-1.5 transition-colors text-sm px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200" },
