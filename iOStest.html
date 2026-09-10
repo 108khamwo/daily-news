@@ -3,130 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CM108 iOS LNA Diagnostic v3</title>
+<title>CM108 Network Fingerprint Diagnostic</title>
 <style>
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f5f7fb;margin:0;color:#111}
 main{max-width:720px;margin:auto;padding:16px}
 .card{background:#fff;border:1px solid #dbe2ea;border-radius:14px;padding:16px;margin:12px 0}
-input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font-size:16px}
-button{display:inline-block;margin:6px 6px 0 0;padding:11px 14px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-size:15px}
-.s{padding:10px;margin:8px 0;border-radius:9px;background:#eef2f7;word-break:break-word}
+button{padding:12px 14px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-size:16px;margin:6px 6px 0 0}
+.s{padding:12px;border-radius:9px;background:#eef2f7;margin:8px 0;word-break:break-all}
 .ok{background:#dcfce7;color:#166534}.bad{background:#fee2e2;color:#991b1b}.wait{background:#fef3c7;color:#92400e}
-pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#dbeafe;padding:12px;border-radius:10px;font-size:12px;max-height:420px;overflow:auto}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#dbeafe;padding:12px;border-radius:10px;font-size:12px}
 small{color:#64748b}
 </style>
 </head>
 <body><main>
 <div class="card">
-<b>CM108 iOS Local Network Access Diagnostic v3</b><br>
+<b>CM108 Network Fingerprint Diagnostic v1</b><br>
 <small id="env"></small>
 </div>
-
 <div class="card">
-<input id="base" value="http://192.168.1.102:8787">
-<button id="run">ทดสอบทั้งหมด</button>
+<button id="run">ตรวจ Public IP</button>
 <button id="copy">คัดลอกผล</button>
+<div id="status" class="s">ยังไม่ได้ทดสอบ</div>
+<div class="s">ให้เปิดหน้านี้ 3 ครั้ง: 1) คอมเครื่อง Monitor 2) iPhone ต่อ Wi‑Fi เดียวกัน 3) iPhone ปิด Wi‑Fi ใช้ 5G</div>
 </div>
-
-<div class="card">
-<div id="perm" class="s">Permissions API: รอ</div>
-<div id="plain" class="s">Plain fetch: รอ</div>
-<div id="local" class="s">targetAddressSpace=local: รอ</div>
-<div id="localcors" class="s">local + cors: รอ</div>
-</div>
-
-<div class="card">
-<pre id="log"></pre>
-</div>
+<div class="card"><pre id="log"></pre></div>
 </main>
 <script>
-const $=id=>document.getElementById(id);
-const logEl=$('log');
+const $=id=>document.getElementById(id), logEl=$('log');
 $('env').textContent=`UA: ${navigator.userAgent} | Origin: ${location.origin}`;
+function log(m,o){let s=`[${new Date().toISOString()}] ${m}`;if(o!==undefined)try{s+=' '+JSON.stringify(o)}catch(e){}logEl.textContent+=s+'\n'}
+function st(k,t){$('status').className='s '+k;$('status').textContent=t}
 
-function log(m,o){
-  let s=`[${new Date().toISOString()}] ${m}`;
-  if(o!==undefined){try{s+=' '+JSON.stringify(o)}catch(e){}}
-  logEl.textContent+=s+'\n';
-}
-function st(id,k,t){const e=$(id);e.className='s '+k;e.textContent=t}
-
-async function probe(label,url,options,timeout=12000){
-  const c=new AbortController();
-  const t=setTimeout(()=>c.abort(),timeout);
-  const t0=performance.now();
+async function fetchJson(url, ms=15000){
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),ms), t0=performance.now();
   try{
-    const r=await fetch(url,{cache:'no-store',signal:c.signal,...options});
-    const txt=await r.text();
-    let obj=null; try{obj=JSON.parse(txt)}catch(e){}
-    const ms=Math.round(performance.now()-t0);
-    log(label+' PASS',{ms,status:r.status,type:r.type,data:obj||txt.slice(0,200)});
-    return {ok:true,ms,status:r.status,obj};
-  }catch(e){
-    const ms=Math.round(performance.now()-t0);
-    log(label+' FAIL',{ms,name:e.name,message:e.message});
-    return {ok:false,ms,error:e};
-  }finally{clearTimeout(t)}
+    const r=await fetch(url,{cache:'no-store',signal:c.signal});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    return {d,ms:Math.round(performance.now()-t0)};
+  } finally { clearTimeout(t); }
 }
 
-async function testPermission(){
-  const rows=[];
-  if(!navigator.permissions || !navigator.permissions.query){
-    st('perm','bad','Permissions API: ไม่มี navigator.permissions');
-    log('PERMISSION API unavailable');
-    return;
-  }
-  for(const name of ['local-network','local-network-access']){
+async function getIp(){
+  const endpoints=[
+    ['ipify64','https://api64.ipify.org?format=json'],
+    ['ipify4','https://api.ipify.org?format=json']
+  ];
+  let last=null;
+  for(const [name,url] of endpoints){
     try{
-      const s=await navigator.permissions.query({name});
-      rows.push(`${name}=${s.state}`);
-    }catch(e){
-      rows.push(`${name}=unsupported`);
-    }
+      const r=await fetchJson(url);
+      const ip=String(r.d.ip||'').trim();
+      if(ip){ log(name+' PASS',{ip,ms:r.ms}); return {ip,source:name,ms:r.ms}; }
+    }catch(e){ last=e; log(name+' FAIL',{name:e.name,message:e.message}); }
   }
-  st('perm','',`Permissions API: ${rows.join(' | ')}`);
-  log('PERMISSION',{rows});
+  throw last||new Error('PUBLIC_IP_FAILED');
 }
-
 $('run').onclick=async()=>{
-  logEl.textContent='';
-  const b=$('base').value.trim().replace(/\/$/,'');
-  const url=b+'/api/public/network?_=lna3_'+Date.now();
-  log('=== RUN ===',{url});
-
-  await testPermission();
-
-  st('plain','wait','Plain fetch: กำลังทดสอบ…');
-  const p=await probe('PLAIN',url,{});
-  st('plain',p.ok?'ok':'bad',`Plain fetch: ${p.ok?'ผ่าน '+p.ms+'ms':'ไม่ผ่าน '+p.error.name+' · '+p.error.message}`);
-
-  st('local','wait','targetAddressSpace=local: กำลังทดสอบ…');
-  const l=await probe('TARGET_LOCAL',url,{targetAddressSpace:'local'});
-  st('local',l.ok?'ok':'bad',`targetAddressSpace=local: ${l.ok?'ผ่าน '+l.ms+'ms':'ไม่ผ่าน '+l.error.name+' · '+l.error.message}`);
-
-  st('localcors','wait','local + cors: กำลังทดสอบ…');
-  const lc=await probe('TARGET_LOCAL_CORS',url,{targetAddressSpace:'local',mode:'cors',credentials:'omit'});
-  st('localcors',lc.ok?'ok':'bad',`local + cors: ${lc.ok?'ผ่าน '+lc.ms+'ms':'ไม่ผ่าน '+lc.error.name+' · '+lc.error.message}`);
-
-  log('=== DONE ===');
+  st('wait','กำลังตรวจ…'); log('=== RUN ===');
+  try{
+    const r=await getIp();
+    st('ok',`Public IP: ${r.ip} · ${r.source} · ${r.ms}ms`);
+    log('RESULT',r);
+  }catch(e){
+    st('bad','ตรวจไม่ผ่าน: '+(e.message||e));
+    log('FAIL',{name:e.name,message:e.message});
+  }
 };
-
 $('copy').onclick=async()=>{
-  const txt=`CM108 iOS LNA Diagnostic v3
+ const txt=`CM108 Network Fingerprint
 UA: ${navigator.userAgent}
 Origin: ${location.origin}
-Base: ${$('base').value}
-${$('perm').textContent}
-${$('plain').textContent}
-${$('local').textContent}
-${$('localcors').textContent}
+${$('status').textContent}
 
 ${logEl.textContent}`;
-  try{
-    await navigator.clipboard.writeText(txt);
-    $('copy').textContent='คัดลอกแล้ว';
-    setTimeout(()=>$('copy').textContent='คัดลอกผล',1500);
-  }catch(e){prompt('คัดลอกผลนี้',txt)}
+ try{await navigator.clipboard.writeText(txt);$('copy').textContent='คัดลอกแล้ว';setTimeout(()=>$('copy').textContent='คัดลอกผล',1500)}
+ catch(e){prompt('คัดลอกผล',txt)}
 };
 </script>
 </body></html>
