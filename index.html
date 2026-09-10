@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.75">
+    <meta name="cm108-dashboard-version" content="0.1.76">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.75';
+        const CURRENT_DASHBOARD_VERSION = '0.1.76';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.75 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.76 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -929,25 +929,39 @@ const discoverFacebookMonitorBySubnet = async (preferredBase = '') => {
 };
 const getFacebookMonitorPermissionState = async () => {
     if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
-    for (const name of ['local-network', 'local-network-access']) {
+    const states = [];
+    // Chrome 145+ split Local Network Access into local-network and
+    // loopback-network. Keep the old alias for older Chromium builds.
+    for (const name of ['local-network', 'loopback-network', 'local-network-access']) {
         try {
             const status = await navigator.permissions.query({ name });
-            if (status && status.state) return status.state;
+            if (status && status.state) states.push(status.state);
         } catch (e) { }
     }
-    return 'unknown';
+    if (states.includes('granted')) return 'granted';
+    if (states.includes('prompt')) return 'prompt';
+    if (states.length && states.every(v => v === 'denied')) return 'denied';
+    return states[0] || 'unknown';
+};
+const getFacebookMonitorTargetAddressSpace = (url) => {
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        // Chrome 145+ has a separate loopback-network permission. Marking
+        // 127.0.0.1 as "local" can make the probe use the wrong permission.
+        if (host === 'localhost' || host === '::1' || /^127\./.test(host)) return 'loopback';
+        return 'local';
+    } catch (e) { return 'local'; }
 };
 const fetchFacebookMonitor = async (url, timeoutMs = 20000) => {
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const options = { cache: 'no-store', signal: controller.signal };
-        // Chromium uses targetAddressSpace for Local Network Access. Safari/iOS
-        // does not follow the same flow; passing it there only makes diagnosis
-        // harder. On iOS we make a plain probe, then hand off to the local page
-        // only when the probe actually succeeds.
+        // Chromium Local Network Access: distinguish loopback from LAN. Private
+        // IP literals/.local already identify their address space, but the
+        // explicit value also supports a saved Windows hostname.
         if (!FB_MONITOR_IS_IOS_GITHUB && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
-            options.targetAddressSpace = 'local';
+            options.targetAddressSpace = getFacebookMonitorTargetAddressSpace(url);
         }
         return await fetch(url, options);
     } finally {
@@ -1329,7 +1343,7 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.75: LAN detection remains quiet, but no longer gives up after only
+    // v0.1.76: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
     // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
     // permission and could incorrectly switch a same-LAN user to Google Remote.
     // All candidates still run in parallel and the first successful one wins.
@@ -1559,7 +1573,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.75: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.76: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1649,7 +1663,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.75: Outside the LAN, replace only the right latest-news panel with
+    // v0.1.76: Outside the LAN, replace only the right latest-news panel with
     // the Google Apps Script viewer. The iframe keeps Google login/auth isolated;
     // no viewer password or secret is ever embedded in this public Dashboard.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
