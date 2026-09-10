@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.73">
+    <meta name="cm108-dashboard-version" content="0.1.74">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.73';
+        const CURRENT_DASHBOARD_VERSION = '0.1.74';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.73 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.74 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -220,6 +220,10 @@
         .fb-monitor-all-link { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; transition: background .12s ease; }
         .fb-monitor-remote-wrap { min-height: 0; flex: 1; position: relative; background: #fff; overflow: hidden; }
         .fb-monitor-remote-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #fff; }
+        .fb-monitor-remote-fallback { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; padding: 18px; background: rgba(244,247,251,.96); }
+        .fb-monitor-remote-fallback-card { width: min(300px, 100%); display: flex; flex-direction: column; gap: 8px; text-align: center; color: #475569; font-size: 11px; line-height: 1.5; }
+        .fb-monitor-remote-fallback-card strong { color: #0f172a; font-size: 13px; }
+        .fb-monitor-remote-fallback-card a { display: inline-flex; justify-content: center; align-items: center; margin-top: 4px; padding: 9px 11px; border-radius: 10px; background: #2563eb; color: #fff; text-decoration: none; font-weight: 800; }
         .fb-monitor-remote-badge { display: inline-flex; align-items: center; gap: 5px; color: #64748b; font-size: 9px; font-weight: 700; }
         .fb-monitor-remote-badge::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.10); }
         .fb-monitor-all-link:hover { background: #dbeafe; }
@@ -732,7 +736,7 @@ const FB_MONITOR_LOOPBACK_URL = 'http://127.0.0.1:8787';
 const FB_MONITOR_IP_FALLBACK_URL = 'http://192.168.1.102:8787';
 const FB_MONITOR_OLD_DEFAULT_URL = 'http://192.168.1.7:8787';
 const FB_MONITOR_URL = FB_MONITOR_MDNS_URL;
-// v0.1.73: Cloud fallback used only when the Local Monitor cannot be reached.
+// v0.1.74: Cloud fallback used only when the Local Monitor cannot be reached.
 // This is the existing Google Apps Script viewer; login remains enforced inside Google.
 const FB_MONITOR_REMOTE_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbymdnOF5LRlctMC4dQRha9gOHpUgSvogyIGLj0AP79qFNTcTfeiDPpENMYRtgE21y-5YQ/exec';
 const getFacebookMonitorRemoteUrl = () => {
@@ -812,7 +816,7 @@ const getFacebookMonitorCandidates = (preferred = '') => {
     const savedHost = getFacebookMonitorSavedHost();
     // v0.1.69: loopback makes the same-PC case immune to DHCP/IP changes.
     // A saved Windows hostname then gives other PCs a second dynamic-name path.
-    const raw = [FB_MONITOR_LOOPBACK_URL, preferred, savedHost, FB_MONITOR_MDNS_URL, saved, FB_MONITOR_IP_FALLBACK_URL];
+    const raw = [FB_MONITOR_LOOPBACK_URL, saved, savedHost, preferred, FB_MONITOR_MDNS_URL, FB_MONITOR_IP_FALLBACK_URL];
     const seen = new Set();
     return raw.map(v => String(v || '').trim().replace(/\/$/, '')).filter(v => v && !seen.has(v) && seen.add(v));
 };
@@ -986,6 +990,8 @@ const FacebookLatestTicker = () => {
     const [manualConnecting, setManualConnecting] = useState(false);
     const [iosLocalFallback, setIosLocalFallback] = useState(false);
     const [feedMode, setFeedMode] = useState('detecting'); // detecting | lan | remote
+    const [remoteFrameReady, setRemoteFrameReady] = useState(false);
+    const [remoteFrameSlow, setRemoteFrameSlow] = useState(false);
     const [floatingTarget, setFloatingTarget] = useState(null);
     const [floatingMode, setFloatingMode] = useState('');
     const [readItemKeys, setReadItemKeys] = useState(() => loadFacebookMonitorReadKeys());
@@ -1219,7 +1225,6 @@ const FacebookLatestTicker = () => {
             const frame = doc.createElement('iframe');
             frame.src = buildFacebookMonitorRemoteSidebarUrl();
             frame.title = 'CM108 Remote News';
-            frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin');
             doc.body.appendChild(frame);
             const onClosed = () => { if (remoteFloatingWindowRef.current === w) remoteFloatingWindowRef.current = null; };
             w.addEventListener('pagehide', onClosed, { once: true });
@@ -1313,21 +1318,25 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.73: quick reachability probe. All known LAN candidates are checked in
-    // parallel so an Internet user falls back to Google within ~2 seconds instead
-    // of waiting for a full LAN/subnet scan. A slower subnet recovery is throttled
-    // and runs in the background only once every 5 minutes.
+    // v0.1.74: LAN detection remains quiet, but no longer gives up after only
+    // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
+    // permission and could incorrectly switch a same-LAN user to Google Remote.
+    // All candidates still run in parallel and the first successful one wins.
     const fetchQuickMonitorSnapshot = async () => {
         const candidates = getFacebookMonitorCandidates(monitorBaseRef.current || monitorBase);
         const checks = candidates.map(async base => {
-            const timeout = base === FB_MONITOR_LOOPBACK_URL ? 900 : (base === FB_MONITOR_MDNS_URL ? 1800 : 1600);
-            try {
-                const data = await fetchMonitorSnapshot(base, timeout);
-                return { data, base };
-            } catch (e) { return null; }
+            const timeout = base === FB_MONITOR_LOOPBACK_URL ? 1500 : (base === FB_MONITOR_MDNS_URL ? 5500 : 5000);
+            const data = await fetchMonitorSnapshot(base, timeout);
+            return { data, base };
         });
-        const results = await Promise.all(checks);
-        const found = results.find(Boolean);
+        let found = null;
+        if (typeof Promise.any === 'function') {
+            try { found = await Promise.any(checks); } catch (e) { found = null; }
+        } else {
+            const wrapped = checks.map(p => p.catch(() => null));
+            const results = await Promise.all(wrapped);
+            found = results.find(Boolean) || null;
+        }
         if (!found) throw new Error('ไม่พบ Monitor ใน LAN');
         monitorBaseRef.current = found.base;
         rememberFacebookMonitorNetwork(found.data, found.base);
@@ -1364,6 +1373,31 @@ const FacebookLatestTicker = () => {
             // Staying on Cloud is expected when the user is really outside the LAN.
         } finally { subnetDiscoveryBusyRef.current = false; }
     };
+
+    useEffect(() => {
+        const onRemoteMessage = (event) => {
+            const origin = String(event.origin || '');
+            const trustedGoogle = origin === 'https://script.google.com' || origin.endsWith('.googleusercontent.com');
+            const payload = event.data || {};
+            if (!trustedGoogle || payload.type !== 'cm108-remote-news') return;
+            setRemoteFrameReady(true);
+            setRemoteFrameSlow(false);
+        };
+        window.addEventListener('message', onRemoteMessage);
+        return () => window.removeEventListener('message', onRemoteMessage);
+    }, []);
+
+    useEffect(() => {
+        if (feedMode !== 'remote' || monitorState.connected) {
+            setRemoteFrameReady(false);
+            setRemoteFrameSlow(false);
+            return;
+        }
+        setRemoteFrameReady(false);
+        setRemoteFrameSlow(false);
+        const timer = setTimeout(() => setRemoteFrameSlow(true), 8000);
+        return () => clearTimeout(timer);
+    }, [feedMode, monitorState.connected]);
 
     useEffect(() => {
         const shouldReserveSpace = (monitorState.connected || feedMode === 'remote') && !collapsed && !floatingTarget;
@@ -1513,7 +1547,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.73: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.74: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1603,7 +1637,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.73: Outside the LAN, replace only the right latest-news panel with
+    // v0.1.74: Outside the LAN, replace only the right latest-news panel with
     // the Google Apps Script viewer. The iframe keeps Google login/auth isolated;
     // no viewer password or secret is ever embedded in this public Dashboard.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
@@ -1652,9 +1686,15 @@ const FacebookLatestTicker = () => {
                         title: 'CM108 Remote News',
                         loading: 'eager',
                         referrerPolicy: 'no-referrer',
-                        allow: 'clipboard-read; clipboard-write',
-                        sandbox: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin'
-                    })
+                        allow: 'clipboard-read; clipboard-write'
+                    }),
+                    remoteFrameSlow && !remoteFrameReady ? React.createElement('div', { className: 'fb-monitor-remote-fallback' },
+                        React.createElement('div', { className: 'fb-monitor-remote-fallback-card' },
+                            React.createElement('strong', null, 'Remote News ยังไม่สามารถแสดงในแถบนี้'),
+                            React.createElement('span', null, 'ตรวจว่า Google Apps Script เป็น v0.1.74 และ Deploy เป็น New version แล้ว'),
+                            React.createElement('a', { href: getFacebookMonitorRemoteUrl(), target: '_blank', rel: 'noopener noreferrer' }, 'เปิด Remote News ในแท็บใหม่ ↗')
+                        )
+                    ) : null
                 )
             )
         );
