@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.80">
+    <meta name="cm108-dashboard-version" content="0.1.81">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.80';
+        const CURRENT_DASHBOARD_VERSION = '0.1.81';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
         let checking = false;
@@ -129,7 +129,7 @@
             contain-intrinsic-size: 720px;
         }
 
-        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.80 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
+        /* Facebook News Chiang Mai Monitor 24 Hrs. v0.1.81 - smart LAN/Cloud latest-news sidebar + floating PiP + read-state + dynamic LAN link */
         :root { --fb-monitor-sidebar-width: clamp(320px, 23vw, 390px); }
         .fb-dashboard-root { transition: padding-right .22s ease; }
         html.fb-monitor-sidebar-open .fb-dashboard-root { padding-right: var(--fb-monitor-sidebar-width); }
@@ -759,33 +759,46 @@ const loadFacebookMonitorRemoteToken = () => { try { return String(localStorage.
 const saveFacebookMonitorRemoteToken = (token) => { try { if (token) localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, String(token)); } catch (e) { } };
 const clearFacebookMonitorRemoteToken = () => { try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { } };
 
-const fetchFacebookMonitorRemoteJsonp = (params = {}, timeoutMs = 15000) => new Promise((resolve, reject) => {
-    const callback = `__cm108RemoteJsonp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+const fetchFacebookMonitorRemoteJsonpNamed = (callbackName, params = {}, timeoutMs = 18000) => new Promise((resolve, reject) => {
+    // v0.1.81: Use a simple, stable JSONP function name. The previous dynamic
+    // callback names timed out on some mobile/desktop browsers even though the
+    // same Apps Script endpoint worked when called with a simple callback such
+    // as "testcb". Also send Google's documented "prefix" parameter while
+    // keeping "callback" for backward compatibility with v0.1.81 deployments.
+    const callback = String(callbackName || 'cm108RemoteJsonp');
     let done = false;
     const script = document.createElement('script');
+    let timer = null;
     const cleanup = () => {
         if (done) return;
         done = true;
-        try { delete window[callback]; } catch (e) { window[callback] = undefined; }
+        try { delete globalThis[callback]; } catch (e) { globalThis[callback] = undefined; }
         try { script.remove(); } catch (e) { }
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
     };
-    window[callback] = data => { cleanup(); resolve(data || {}); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error('REMOTE_TIMEOUT')); }, timeoutMs);
+    globalThis[callback] = data => { cleanup(); resolve(data || {}); };
+    timer = setTimeout(() => { cleanup(); reject(new Error('REMOTE_TIMEOUT')); }, timeoutMs);
     try {
         const u = new URL(getFacebookMonitorRemoteUrl());
         Object.entries(params || {}).forEach(([key, value]) => {
             if (value !== undefined && value !== null) u.searchParams.set(key, String(value));
         });
+        u.searchParams.set('prefix', callback);
         u.searchParams.set('callback', callback);
         u.searchParams.set('_', String(Date.now()));
         script.src = u.toString();
         script.async = true;
-        script.referrerPolicy = 'no-referrer';
         script.onerror = () => { cleanup(); reject(new Error('REMOTE_LOAD_FAILED')); };
-        document.head.appendChild(script);
+        (document.head || document.documentElement).appendChild(script);
     } catch (e) { cleanup(); reject(e); }
 });
+const fetchFacebookMonitorRemoteJsonp = (params = {}, timeoutMs = 18000) => {
+    const api = String(params && params.api || '');
+    const callbackName = api === 'auth_challenge' ? 'cm108AuthChallengeV181'
+        : api === 'auth_login' ? 'cm108AuthLoginV181'
+        : 'cm108RemoteJsonpV181';
+    return fetchFacebookMonitorRemoteJsonpNamed(callbackName, params, timeoutMs);
+};
 const base64UrlFromBytes = bytes => {
     let binary = '';
     bytes.forEach(b => { binary += String.fromCharCode(b); });
@@ -808,6 +821,9 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
     if (!challengeData || !challengeData.ok || !challengeData.challenge) {
         throw new Error(String(challengeData && (challengeData.message || challengeData.error) || 'ขอรหัสยืนยันจาก Google ไม่สำเร็จ'));
     }
+    if (Number(challengeData.protocol_version || 0) < 4) {
+        throw new Error('Google Apps Script ยังเป็นรุ่นเก่า กรุณา Deploy v0.1.81 เป็น New version');
+    }
     const proof = await makeFacebookMonitorRemoteProof(password, challengeData.challenge);
     const loginData = await fetchFacebookMonitorRemoteJsonp({
         api:'auth_login',
@@ -824,33 +840,12 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
     return loginData;
 };
 
-const fetchFacebookMonitorRemoteFeed = (token, limit = 20) => new Promise((resolve, reject) => {
-    if (!token) { reject(new Error('REMOTE_LOGIN_REQUIRED')); return; }
-    const callback = `__cm108RemoteFeed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    let done = false;
-    const script = document.createElement('script');
-    const cleanup = () => {
-        if (done) return;
-        done = true;
-        try { delete window[callback]; } catch (e) { window[callback] = undefined; }
-        try { script.remove(); } catch (e) { }
-        clearTimeout(timer);
-    };
-    window[callback] = data => { cleanup(); resolve(data || {}); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error('REMOTE_TIMEOUT')); }, 15000);
-    try {
-        const u = new URL(getFacebookMonitorRemoteUrl());
-        u.searchParams.set('api', 'feed');
-        u.searchParams.set('token', token);
-        u.searchParams.set('limit', String(limit));
-        u.searchParams.set('callback', callback);
-        u.searchParams.set('_', String(Date.now()));
-        script.src = u.toString();
-        script.async = true;
-        script.onerror = () => { cleanup(); reject(new Error('REMOTE_LOAD_FAILED')); };
-        document.head.appendChild(script);
-    } catch (e) { cleanup(); reject(e); }
-});
+const fetchFacebookMonitorRemoteFeed = (token, limit = 20) => {
+    if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
+    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV181', {
+        api:'feed', token:String(token), limit:String(limit)
+    }, 18000);
+};
 const buildFacebookMonitorRemoteSidebarUrl = () => {
     try {
         const u = new URL(getFacebookMonitorRemoteUrl());
@@ -1208,7 +1203,7 @@ const FacebookLatestTicker = () => {
         });
     };
 
-    // v0.1.80: Dashboard authentication is now direct through the Apps Script
+    // v0.1.81: Dashboard authentication is now direct through the Apps Script
     // JSONP auth API. No navigation/popup/postMessage bridge is required.
 
     useEffect(() => {
@@ -1516,7 +1511,7 @@ const FacebookLatestTicker = () => {
         throw lastError || new Error('ไม่พบ Monitor ใน LAN');
     };
 
-    // v0.1.80: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
+    // v0.1.81: LAN detection remains quiet and handles Chrome 145+ split LAN/loopback permissions. It also no longer gives up after only
     // 1.6-1.8 seconds. That was too short for Chromium Local Network Access
     // permission and could incorrectly switch a same-LAN user to Google Remote.
     // All candidates still run in parallel and the first successful one wins.
@@ -1746,7 +1741,7 @@ const FacebookLatestTicker = () => {
 
                 setMonitorState(prev => ({ ...prev, loading: false, connected: false, running: false }));
 
-                // v0.1.80: no warning/prompt when the LAN is simply unreachable.
+                // v0.1.81: no warning/prompt when the LAN is simply unreachable.
                 // Quietly use the authenticated Google Remote viewer instead, while
                 // continuing to probe for LAN recovery in the background.
                 if (!FB_MONITOR_IS_LOCAL_DASHBOARD && getFacebookMonitorRemoteUrl()) {
@@ -1836,7 +1831,7 @@ const FacebookLatestTicker = () => {
         window.location.reload();
     };
 
-    // v0.1.80: Outside LAN, render Google Remote news directly in our own sidebar.
+    // v0.1.81: Outside LAN, render Google Remote news directly in our own sidebar.
     // No Apps Script iframe is used, avoiding Google Drive/HTML Service iframe failures on mobile.
     if (!monitorState.connected && feedMode === 'remote' && !FB_MONITOR_IS_LOCAL_DASHBOARD) {
         const remoteRows = remoteItems.length ? remoteItems.map(item => {
