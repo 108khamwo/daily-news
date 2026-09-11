@@ -1276,7 +1276,7 @@ const FacebookLatestTicker = () => {
     const [remoteDisplayLimit, setRemoteDisplayLimit] = useState(50);
     const [remoteAuthState, setRemoteAuthState] = useState(() => loadFacebookMonitorRemoteToken() ? 'loading' : 'login');
     const [remoteUpdatedAt, setRemoteUpdatedAt] = useState(null);
-    const [remotePresence, setRemotePresence] = useState({ online: null, updateEnabled: null, lastSeenAt: null, lastRunAt: null });
+    const [remotePresence, setRemotePresence] = useState({ online: null, updateEnabled: null, lastSeenAt: null, lastRunAt: null, deviceType: null });
     const [remoteError, setRemoteError] = useState('');
     const [remotePassword, setRemotePassword] = useState('');
     const [remoteRemember, setRemoteRemember] = useState(true);
@@ -1601,7 +1601,8 @@ const FacebookLatestTicker = () => {
                 online: typeof data.monitor_online === 'boolean' ? data.monitor_online : null,
                 updateEnabled: typeof data.monitor_update_enabled === 'boolean' ? data.monitor_update_enabled : null,
                 lastSeenAt: presenceLastSeen,
-                lastRunAt: presenceLastRun
+                lastRunAt: presenceLastRun,
+                deviceType: data.monitor_device_type || null
             });
             setRemoteAuthState('ready');
             setRemoteError('');
@@ -2096,9 +2097,12 @@ const FacebookLatestTicker = () => {
         const remoteLatestTitle = remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`;
         const remoteLastSeen = remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
         const remoteStopped = remotePresence.updateEnabled === false || remotePresence.online === false;
-        const remoteStatus = remoteStopped
-            ? `ปิดระบบอัปเดตข่าวแล้ว${remoteLastSeen ? ` · ข่าวถึง ${formatFacebookMonitorTime(remoteLastSeen)} น.` : ''}`
-            : (remoteLastSeen ? `ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.` : 'พร้อมใช้งาน');
+        const remoteMobileActive = remotePresence.deviceType === 'android' && remotePresence.online !== false;
+        const remoteStatus = remoteMobileActive
+            ? `Mobile Monitor กำลังอัปเดต${remoteLastSeen ? ` · ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.` : ''}`
+            : (remoteStopped
+                ? `ปิดระบบอัปเดตข่าวแล้ว${remoteLastSeen ? ` · ข่าวถึง ${formatFacebookMonitorTime(remoteLastSeen)} น.` : ''}`
+                : (remoteLastSeen ? `ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.` : 'พร้อมใช้งาน'));
         return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
             React.createElement('button', { type:'button', className:'fb-monitor-collapsed-tab', onClick:toggleCollapsed, title:'ขยายข่าวล่าสุดผ่าน Cloud' },
                 React.createElement(Icon,{name:'chevron-left',size:16}), React.createElement('span',null,'ข่าวล่าสุด · Cloud'), React.createElement('span',{className:'fb-monitor-mobile-label'},'Cloud')),
