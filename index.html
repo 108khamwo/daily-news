@@ -9,7 +9,7 @@
     <meta name="cm108-dashboard-version" content="0.1.93">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.94';
+        const CURRENT_DASHBOARD_VERSION = '0.1.95';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v194';
         let checking = false;
@@ -2331,14 +2331,12 @@ const FacebookLatestTicker = () => {
         const remoteLastSeen = remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
         const remoteSystemOnline = remotePresence.systemOnline !== null && remotePresence.systemOnline !== undefined ? remotePresence.systemOnline : remotePresence.online;
         const remoteStopped = remoteSystemOnline === false || ((remoteSystemOnline === null || remoteSystemOnline === undefined) && remotePresence.updateEnabled === false);
-        const activeDeviceLabel = remotePresence.activeDeviceType === 'android' ? '📱 Mobile' : (remotePresence.activeDeviceType === 'windows' ? '🖥 Windows' : 'Monitor');
-        const stateLabel = remotePresence.activeState === 'running' ? 'กำลังตรวจ' : (remotePresence.activeState === 'waiting' ? 'พักรอรอบถัดไป' : (remotePresence.activeState === 'standby' ? 'Standby' : (remotePresence.activeState || 'ออนไลน์')));
-        const cycleText = remotePresence.currentCycleNumber ? ` · รอบที่ ${remotePresence.currentCycleNumber}` : (remotePresence.cycleCount ? ` · สำเร็จ ${remotePresence.cycleCount} รอบ` : '');
-        const progressText = remotePresence.runTotalPages > 0 && remotePresence.activeState === 'running' ? ` · ${Math.min(remotePresence.runCompletedPages + 1, remotePresence.runTotalPages)}/${remotePresence.runTotalPages}` : '';
-        const nextText = remotePresence.activeState === 'waiting' && remotePresence.nextRunAt ? ` · รอบถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.` : '';
-        const remoteStatus = remoteStopped
-            ? `ระบบออฟไลน์${remoteLastSeen ? ` · ข่าวถึง ${formatFacebookMonitorTime(remoteLastSeen)} น.` : ''}`
-            : `${activeDeviceLabel} · ${stateLabel}${cycleText}${progressText}${nextText}${remoteUsingCache ? ' · ใช้ข้อมูลล่าสุดในเครื่อง' : ''}`;
+        const remoteCycleNumber = Number(remotePresence.currentCycleNumber || remotePresence.cycleCount || 0);
+        const remoteStatusParts = [remoteStopped ? 'Offline' : 'Online'];
+        if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
+        if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
+        if (!remoteStopped && remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
+        const remoteStatus = remoteStatusParts.join(' · ');
         return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
             React.createElement('button', { type:'button', className:'fb-monitor-collapsed-tab', onClick:toggleCollapsed, title:'ขยายข่าวล่าสุดผ่าน Cloud' },
                 React.createElement(Icon,{name:'chevron-left',size:16}), React.createElement('span',null,'ข่าวล่าสุด · Cloud'), React.createElement('span',{className:'fb-monitor-mobile-label'},'Cloud')),
@@ -2352,7 +2350,7 @@ const FacebookLatestTicker = () => {
                             React.createElement('button',{type:'button',className:'fb-monitor-collapse-btn',onClick:toggleCollapsed,title:'หุบแถบข่าวล่าสุด'},React.createElement(Icon,{name:'chevron-right',size:16}))
                         )
                     ),
-                    React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('span',{className:'fb-monitor-remote-badge'},'Google Remote'),React.createElement('strong',null,remoteStatus))
+                    React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('strong',null,remoteStatus))
                 ),
                 remoteAuthState === 'login' ? React.createElement('form',{onSubmit:submitRemoteLogin,className:'p-4 flex-1 flex flex-col items-stretch justify-center gap-2'},
                     React.createElement('div',{className:'flex items-center gap-2'},
@@ -2442,11 +2440,12 @@ const FacebookLatestTicker = () => {
     const displayLimit = normalizeDisplayLimit(monitorState.displayLimit);
     const latestCountLabel = displayLimit === 0 ? `ข่าวล่าสุด · ${monitorState.displayHours} ชม.` : `${displayLimit} ข่าวล่าสุด · ${monitorState.displayHours} ชม.`;
     const latestTitle = `${displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${displayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${monitorState.displayHours} ชม.`;
-    const lastUpdateLabel = monitorState.updatedAt ? `${formatFacebookMonitorTime(monitorState.updatedAt)} น.` : '-';
-    const localCycleText = monitorState.currentCycleNumber ? ` · รอบที่ ${monitorState.currentCycleNumber}` : (monitorState.cycleCount ? ` · สำเร็จ ${monitorState.cycleCount} รอบ` : '');
-    const localNextText = !monitorState.running && monitorState.nextRunAt ? ` · รอบถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.` : '';
-    const localProgressText = monitorState.running && monitorState.runTotalPages > 0 ? ` · ${Math.min(monitorState.runCompletedPages + 1, monitorState.runTotalPages)}/${monitorState.runTotalPages}` : '';
-    const statusCopy = monitorState.running ? `กำลังตรวจ${localCycleText}${localProgressText}` : (monitorState.updatedAt ? `ล่าสุด ${lastUpdateLabel}${localCycleText}${localNextText}` : 'รออัปเดต');
+    const localCycleNumber = Number(monitorState.currentCycleNumber || monitorState.cycleCount || 0);
+    const localStatusParts = ['Online'];
+    if (localCycleNumber > 0) localStatusParts.push(`รอบที่ ${localCycleNumber}`);
+    if (monitorState.updatedAt) localStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
+    if (monitorState.nextRunAt) localStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
+    const statusCopy = localStatusParts.join(' · ');
     const dotClass = monitorState.running ? 'running' : 'online';
 
     const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
