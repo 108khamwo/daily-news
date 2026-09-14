@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.101">
+    <meta name="cm108-dashboard-version" content="0.1.102">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.101';
+        const CURRENT_DASHBOARD_VERSION = '0.1.102';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1100';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1102';
         let checking = false;
         let reloading = false;
 
@@ -232,9 +232,15 @@
         }
         .fb-monitor-new-badge:hover { background: #1d4ed8; }
         .fb-monitor-sidebar-footer { padding: 8px 10px 10px; border-top: 1px solid #eef2f7; background: #fff; }
-        .fb-monitor-cloud-progress { display:flex; align-items:center; justify-content:center; gap:6px; min-height:25px; padding:4px 8px; border-top:1px solid #f1f5f9; background:#fff; color:#64748b; font-size:10px; font-weight:650; }
-        .fb-monitor-cloud-progress .spin { animation:cm108-spin .85s linear infinite; }
-        @keyframes cm108-spin { to { transform:rotate(360deg); } }
+        .fb-monitor-cloud-progress { position:relative; display:flex; align-items:center; justify-content:center; gap:7px; min-height:26px; padding:5px 9px 6px; border-top:1px solid #f1f5f9; background:#fff; color:#64748b; font-size:10px; font-weight:700; overflow:hidden; }
+        .fb-monitor-cloud-progress::after { content:''; position:absolute; left:0; right:0; bottom:0; height:2px; background:linear-gradient(90deg, transparent 0%, #60a5fa 42%, #2563eb 55%, transparent 100%); transform:translateX(-65%); animation:cm108-cloud-slide 1.15s ease-in-out infinite; }
+        .fb-monitor-loading-dots { display:inline-flex; align-items:center; gap:3px; height:12px; }
+        .fb-monitor-loading-dots i { width:4px; height:4px; border-radius:999px; background:#60a5fa; animation:cm108-dot-pulse .9s ease-in-out infinite; }
+        .fb-monitor-loading-dots i:nth-child(2){ animation-delay:.14s; }
+        .fb-monitor-loading-dots i:nth-child(3){ animation-delay:.28s; }
+        .fb-monitor-initial-loading { color:#64748b; }
+        @keyframes cm108-cloud-slide { 0%{transform:translateX(-70%)} 100%{transform:translateX(70%)} }
+        @keyframes cm108-dot-pulse { 0%,70%,100%{opacity:.35;transform:translateY(0)} 35%{opacity:1;transform:translateY(-2px)} }
         .fb-monitor-all-link { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; transition: background .12s ease; }
         .fb-monitor-remote-wrap { min-height: 0; flex: 1; position: relative; background: #fff; overflow: hidden; }
         .fb-monitor-remote-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #fff; }
@@ -1029,13 +1035,14 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
 
 const fetchFacebookMonitorRemoteFeed = (token, pageSize = null, offset = 0, fast = false) => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
-    // v0.1.101: progressive Cloud feed. First paint asks for only 15 fresh rows,
-    // then exact older pages are streamed in the background without blocking UI.
-    const params = { api:'feed', token:String(token) };
+    // v0.1.102: first paint asks for only 15 fresh rows. The exact history then
+    // arrives as one compact background response (no full message bodies), which
+    // avoids rescanning the Google Sheet once for every 60-row page.
+    const params = { api:'feed', token:String(token), compact:'1' };
     if (pageSize !== null && pageSize !== undefined) params.page_size = String(pageSize);
     if (offset) params.offset = String(offset);
     if (fast) params.fast = '1';
-    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV101', params, 45000);
+    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV102', params, 45000);
 };
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
@@ -1807,43 +1814,56 @@ const FacebookLatestTicker = () => {
     };
 
     const loadRemoteCloudHistory = async (token, seq) => {
-        const pageSize = 60;
-        let offset = 0;
-        let accumulated = [];
         let lastMeta = null;
-        let lastAvailableCount = null;
-        let lastRetainedCount = null;
         remoteBackgroundBusyRef.current = true;
         setRemoteProgressLoading(true);
+        setRemoteProgressTotal(null);
         try {
-            while (seq === remoteBackgroundSeqRef.current) {
-                const page = await fetchFacebookMonitorRemoteFeed(token, pageSize, offset, false);
-                if (!page || page.ok === false || page.authenticated === false) {
-                    if (isExplicitFacebookMonitorRemoteAuthFailure(page)) return;
-                    throw new Error(String(page && (page.error || page.message) || 'REMOTE_PAGE_ERROR'));
-                }
-                const mapped = mapRemoteCloudItems(page.items);
-                accumulated = offset === 0 ? mapped : mergeRemoteCloudItems(accumulated, mapped);
-                lastMeta = applyRemoteCloudMeta(page);
-                if (page.available_count !== null && page.available_count !== undefined) lastAvailableCount = Number(page.available_count);
-                if (page.total !== null && page.total !== undefined) lastRetainedCount = Number(page.total);
-                const exactTotal = Number(page.target_count);
-                const total = Number.isFinite(exactTotal) ? exactTotal : Number(page.available_count);
-                setRemoteProgressLoaded(accumulated.length);
-                setRemoteProgressTotal(Number.isFinite(total) ? total : null);
-                setRemoteItems(accumulated);
-                setRemoteUsingCache(false);
-                setRemoteAuthState('ready');
-                setRemoteError('');
-                if (!page.has_more || page.next_offset === null || page.next_offset === undefined) break;
-                const next = Number(page.next_offset);
-                if (!Number.isFinite(next) || next <= offset) break;
-                offset = next;
-                await new Promise(resolve => setTimeout(resolve, 80));
+            // One exact compact request is considerably faster than the old paged
+            // loop because Apps Script reads/sorts the Sheet only once. The client
+            // then reveals the result in small batches so the UI stays responsive.
+            const data = await fetchFacebookMonitorRemoteFeed(token, null, 0, false);
+            if (!data || data.ok === false || data.authenticated === false) {
+                if (isExplicitFacebookMonitorRemoteAuthFailure(data)) return;
+                throw new Error(String(data && (data.error || data.message) || 'REMOTE_HISTORY_ERROR'));
             }
-            if (seq === remoteBackgroundSeqRef.current && lastMeta) {
-                saveFacebookMonitorRemoteCache({items:accumulated, displayLimit:lastMeta.nextLimit, displayHours:lastMeta.nextDisplayHours, historyHours:lastMeta.nextHistoryHours, availableCount:Number.isFinite(lastAvailableCount) ? lastAvailableCount : accumulated.length, retainedCount:Number.isFinite(lastRetainedCount) ? lastRetainedCount : accumulated.length, presence:lastMeta.nextPresence, updatedAt:lastMeta.presenceLastRun || lastMeta.presenceLastSeen || new Date().toISOString(), cachedAt:new Date().toISOString()});
+            if (seq !== remoteBackgroundSeqRef.current) return;
+            const exactItems = mapRemoteCloudItems(data.items);
+            lastMeta = applyRemoteCloudMeta(data);
+            const total = exactItems.length;
+            setRemoteProgressTotal(total);
+
+            // Keep the 15 newest rows visible immediately, then fill history in
+            // lightweight visual chunks. No extra network request is needed here.
+            const revealStep = 40;
+            const firstVisible = Math.min(15, total);
+            if (firstVisible > 0) {
+                setRemoteItems(exactItems.slice(0, firstVisible));
+                setRemoteProgressLoaded(firstVisible);
             }
+            for (let shown = firstVisible; shown < total && seq === remoteBackgroundSeqRef.current; shown += revealStep) {
+                const nextShown = Math.min(total, shown + revealStep);
+                setRemoteItems(exactItems.slice(0, nextShown));
+                setRemoteProgressLoaded(nextShown);
+                await new Promise(resolve => setTimeout(resolve, 55));
+            }
+            if (seq !== remoteBackgroundSeqRef.current) return;
+            setRemoteItems(exactItems);
+            setRemoteProgressLoaded(total);
+            setRemoteUsingCache(false);
+            setRemoteAuthState('ready');
+            setRemoteError('');
+            saveFacebookMonitorRemoteCache({
+                items: exactItems,
+                displayLimit:lastMeta.nextLimit,
+                displayHours:lastMeta.nextDisplayHours,
+                historyHours:lastMeta.nextHistoryHours,
+                availableCount:Number(data.available_count ?? exactItems.length),
+                retainedCount:Number(data.total ?? exactItems.length),
+                presence:lastMeta.nextPresence,
+                updatedAt:lastMeta.presenceLastRun || lastMeta.presenceLastSeen || new Date().toISOString(),
+                cachedAt:new Date().toISOString()
+            });
         } catch (e) {
             console.warn('Google Remote background feed error', e);
         } finally {
@@ -2458,8 +2478,8 @@ const FacebookLatestTicker = () => {
                         )
                     ),
                     remoteError && React.createElement('div',{className:'text-xs text-red-500 leading-relaxed'},remoteError)
-                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center gap-2'},
-                    React.createElement(Icon,{name:'loader-circle',size:14,className:'spin'}), React.createElement('span',null,'กำลังโหลดข่าวล่าสุด…'))
+                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'fb-monitor-initial-loading p-5 text-center text-xs flex-1 flex items-center justify-center gap-2'},
+                    React.createElement('span',{className:'fb-monitor-loading-dots','aria-hidden':'true'},React.createElement('i'),React.createElement('i'),React.createElement('i')), React.createElement('span',null,'กำลังโหลดข่าวล่าสุด'))
                 : remoteAuthState === 'error' ? React.createElement('div',{className:'p-5 text-center flex-1 flex flex-col items-center justify-center gap-3'},
                     React.createElement('div',{className:'text-xs text-red-500',title:remoteError || ''},'เชื่อมต่อ Google Remote ไม่สำเร็จ'),
                     React.createElement('button',{type:'button',onClick:()=>setRetryNonce(v=>v+1),className:'px-3 py-2 rounded-lg border text-xs font-bold'},'ลองใหม่'),
@@ -2470,8 +2490,8 @@ const FacebookLatestTicker = () => {
                     )
                 ),
                 remoteProgressLoading && React.createElement('div',{className:'fb-monitor-cloud-progress'},
-                    React.createElement(Icon,{name:'loader-circle',size:13,className:'spin'}),
-                    React.createElement('span',null,remoteProgressTotal ? `กำลังโหลดข่าวย้อนหลัง ${remoteProgressLoaded}/${remoteProgressTotal}` : `กำลังโหลดข่าวย้อนหลัง ${remoteProgressLoaded} ข่าว`)
+                    React.createElement('span',{className:'fb-monitor-loading-dots','aria-hidden':'true'},React.createElement('i'),React.createElement('i'),React.createElement('i')),
+                    React.createElement('span',null,remoteProgressTotal ? `กำลังเติมข่าวย้อนหลัง ${remoteProgressLoaded}/${remoteProgressTotal}` : 'กำลังเตรียมข่าวย้อนหลัง')
                 ),
                 React.createElement('div',{className:'fb-monitor-sidebar-footer'},
                     React.createElement('a',{href:getFacebookMonitorRemoteUrl(),target:'_blank',rel:'noopener',className:'fb-monitor-all-link'},React.createElement('span',null,`ดูข่าวทั้งหมด ${remoteRetainedCount || ''}${remoteRetainedCount ? ' ข่าว' : ''} · เก็บ ${remoteHistoryHours} ชม.`),React.createElement(Icon,{name:'arrow-up-right',size:13}))
