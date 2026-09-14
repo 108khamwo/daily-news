@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.92">
+    <meta name="cm108-dashboard-version" content="0.1.93">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.92';
+        const CURRENT_DASHBOARD_VERSION = '0.1.93';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v191';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v193';
         let checking = false;
         let reloading = false;
 
@@ -814,9 +814,67 @@ const getFacebookMonitorRemoteUrl = () => {
     } catch (e) { return FB_MONITOR_REMOTE_DEFAULT_URL; }
 };
 const FB_MONITOR_REMOTE_DASH_TOKEN_KEY = 'cm108_remote_dashboard_token_v1';
-const loadFacebookMonitorRemoteToken = () => { try { return String(localStorage.getItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY) || ''); } catch (e) { return ''; } };
-const saveFacebookMonitorRemoteToken = (token) => { try { if (token) localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, String(token)); } catch (e) { } };
-const clearFacebookMonitorRemoteToken = () => { try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { } };
+const FB_MONITOR_REMOTE_DASH_TOKEN_COOKIE = 'cm108_remote_dashboard_token_backup_v1';
+const parseFacebookMonitorRemoteTokenExpiry = token => {
+    try {
+        const exp = Number(String(token || '').split('.')[0] || 0);
+        return Number.isFinite(exp) ? exp : 0;
+    } catch (e) { return 0; }
+};
+const readFacebookMonitorRemoteTokenCookie = () => {
+    try {
+        const prefix = FB_MONITOR_REMOTE_DASH_TOKEN_COOKIE + '=';
+        const hit = String(document.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith(prefix));
+        return hit ? decodeURIComponent(hit.slice(prefix.length)) : '';
+    } catch (e) { return ''; }
+};
+const writeFacebookMonitorRemoteTokenCookie = token => {
+    try {
+        const clean = String(token || '');
+        if (!clean) return;
+        const exp = parseFacebookMonitorRemoteTokenExpiry(clean);
+        const maxAge = exp > Date.now() ? Math.max(60, Math.floor((exp - Date.now()) / 1000)) : 0;
+        if (!maxAge) return;
+        document.cookie = `${FB_MONITOR_REMOTE_DASH_TOKEN_COOKIE}=${encodeURIComponent(clean)}; Max-Age=${Math.min(maxAge, 90*24*60*60)}; Path=/; SameSite=Lax; Secure`;
+    } catch (e) { }
+};
+const clearFacebookMonitorRemoteTokenCookie = () => {
+    try { document.cookie = `${FB_MONITOR_REMOTE_DASH_TOKEN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax; Secure`; } catch (e) { }
+};
+const loadFacebookMonitorRemoteToken = () => {
+    try {
+        const local = String(localStorage.getItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY) || '');
+        const backup = readFacebookMonitorRemoteTokenCookie();
+        const token = local || backup;
+        const exp = parseFacebookMonitorRemoteTokenExpiry(token);
+        if (token && exp && exp > Date.now()) {
+            if (!local) {
+                try { localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, token); } catch (e) { }
+            }
+            return token;
+        }
+        if (token) {
+            try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { }
+            clearFacebookMonitorRemoteTokenCookie();
+        }
+        return '';
+    } catch (e) { return readFacebookMonitorRemoteTokenCookie(); }
+};
+const saveFacebookMonitorRemoteToken = token => {
+    const clean = String(token || '');
+    if (!clean) return;
+    try { localStorage.setItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY, clean); } catch (e) { }
+    writeFacebookMonitorRemoteTokenCookie(clean);
+};
+const clearFacebookMonitorRemoteToken = () => {
+    try { localStorage.removeItem(FB_MONITOR_REMOTE_DASH_TOKEN_KEY); } catch (e) { }
+    clearFacebookMonitorRemoteTokenCookie();
+};
+const isExplicitFacebookMonitorRemoteAuthFailure = data => {
+    const code = String(data && (data.error || data.code) || '').toUpperCase();
+    return ['SESSION_EXPIRED','TOKEN_EXPIRED','INVALID_TOKEN','INVALID_SESSION','AUTH_REQUIRED','UNAUTHENTICATED']
+        .some(x => code.includes(x));
+};
 const FB_MONITOR_CONNECTION_MODE_KEY = 'fb_monitor_connection_mode_v1';
 const normalizeFacebookMonitorConnectionMode = value => ['auto','lan','google'].includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : 'auto';
 const getFacebookMonitorConnectionMode = () => { try { return normalizeFacebookMonitorConnectionMode(localStorage.getItem(FB_MONITOR_CONNECTION_MODE_KEY) || 'auto'); } catch (e) { return 'auto'; } };
@@ -1659,10 +1717,13 @@ const FacebookLatestTicker = () => {
         try {
             const data = await fetchFacebookMonitorRemoteFeed(token);
             if (!data || data.ok === false || data.authenticated === false) {
-                if (String(data && data.error || '').includes('SESSION_EXPIRED') || data.authenticated === false) {
+                // v0.1.93: Never destroy a valid 30-day session just because
+                // Apps Script / Google / Sheet has a temporary feed error.
+                // Only explicit authentication failures are allowed to log out.
+                if (isExplicitFacebookMonitorRemoteAuthFailure(data)) {
                     clearFacebookMonitorRemoteToken(); remoteTokenRef.current = ''; setRemoteAuthState('login'); setRemoteItems([]); setRemoteError(''); return;
                 }
-                throw new Error(String(data && data.error || 'REMOTE_ERROR'));
+                throw new Error(String(data && (data.error || data.message) || 'REMOTE_ERROR'));
             }
             // Save the server-selected mode before any iOS LAN handoff decision.
             // This makes Google Remote only authoritative immediately, even if
