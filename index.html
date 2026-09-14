@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.97">
+    <meta name="cm108-dashboard-version" content="0.1.98">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.97';
+        const CURRENT_DASHBOARD_VERSION = '0.1.98';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v196';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v198';
         let checking = false;
         let reloading = false;
 
@@ -2389,7 +2389,7 @@ const FacebookLatestTicker = () => {
                         )
                     ),
                     remoteError && React.createElement('div',{className:'text-xs text-red-500 leading-relaxed'},remoteError)
-                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center'},'กำลังโหลดข่าวจาก Google…')
+                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center'},'กำลังโหลดข่าวล่าสุด…')
                 : remoteAuthState === 'error' ? React.createElement('div',{className:'p-5 text-center flex-1 flex flex-col items-center justify-center gap-3'},
                     React.createElement('div',{className:'text-xs text-red-500',title:remoteError || ''},'เชื่อมต่อ Google Remote ไม่สำเร็จ'),
                     React.createElement('button',{type:'button',onClick:()=>setRetryNonce(v=>v+1),className:'px-3 py-2 rounded-lg border text-xs font-bold'},'ลองใหม่'),
