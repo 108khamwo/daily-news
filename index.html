@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.100">
+    <meta name="cm108-dashboard-version" content="0.1.101">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.100';
+        const CURRENT_DASHBOARD_VERSION = '0.1.101';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1100';
         let checking = false;
@@ -232,6 +232,9 @@
         }
         .fb-monitor-new-badge:hover { background: #1d4ed8; }
         .fb-monitor-sidebar-footer { padding: 8px 10px 10px; border-top: 1px solid #eef2f7; background: #fff; }
+        .fb-monitor-cloud-progress { display:flex; align-items:center; justify-content:center; gap:6px; min-height:25px; padding:4px 8px; border-top:1px solid #f1f5f9; background:#fff; color:#64748b; font-size:10px; font-weight:650; }
+        .fb-monitor-cloud-progress .spin { animation:cm108-spin .85s linear infinite; }
+        @keyframes cm108-spin { to { transform:rotate(360deg); } }
         .fb-monitor-all-link { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; background: #eff6ff; color: #2563eb; padding: 8px 10px; font-size: 11px; font-weight: 800; transition: background .12s ease; }
         .fb-monitor-remote-wrap { min-height: 0; flex: 1; position: relative; background: #fff; overflow: hidden; }
         .fb-monitor-remote-frame { display: block; width: 100%; height: 100%; min-height: 0; border: 0; background: #fff; }
@@ -1024,12 +1027,15 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
     return loginData;
 };
 
-const fetchFacebookMonitorRemoteFeed = (token, limit = null) => {
+const fetchFacebookMonitorRemoteFeed = (token, pageSize = null, offset = 0, fast = false) => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
-    // v0.1.86: optimized Apps Script feed + JSONP for every browser.
+    // v0.1.101: progressive Cloud feed. First paint asks for only 15 fresh rows,
+    // then exact older pages are streamed in the background without blocking UI.
     const params = { api:'feed', token:String(token) };
-    if (limit !== null && limit !== undefined) params.limit = String(limit);
-    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV186', params, 45000);
+    if (pageSize !== null && pageSize !== undefined) params.page_size = String(pageSize);
+    if (offset) params.offset = String(offset);
+    if (fast) params.fast = '1';
+    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedV101', params, 45000);
 };
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
@@ -1430,6 +1436,9 @@ const FacebookLatestTicker = () => {
     const [remoteAvailableCount, setRemoteAvailableCount] = useState(() => Number(loadFacebookMonitorRemoteCache()?.availableCount ?? 0));
     const [remoteRetainedCount, setRemoteRetainedCount] = useState(() => Number(loadFacebookMonitorRemoteCache()?.retainedCount ?? 0));
     const [remoteUsingCache, setRemoteUsingCache] = useState(false);
+    const [remoteProgressLoading, setRemoteProgressLoading] = useState(false);
+    const [remoteProgressLoaded, setRemoteProgressLoaded] = useState(() => (loadFacebookMonitorRemoteCache()?.items || []).length);
+    const [remoteProgressTotal, setRemoteProgressTotal] = useState(null);
     const [remoteAuthState, setRemoteAuthState] = useState(() => loadFacebookMonitorRemoteToken() ? 'loading' : 'login');
     const [remoteUpdatedAt, setRemoteUpdatedAt] = useState(null);
     const [remotePresence, setRemotePresence] = useState(() => loadFacebookMonitorRemoteCache()?.presence || { online: null, systemOnline: null, updateEnabled: null, lastSeenAt: null, lastRunAt: null, activeDeviceType: null, activeState: null, cycleCount: 0, currentCycleNumber: 0, currentPage: '', runTotalPages: 0, runCompletedPages: 0, nextRunAt: null });
@@ -1463,6 +1472,8 @@ const FacebookLatestTicker = () => {
     const floatingWindowRef = useRef(null);
     const remoteFloatingWindowRef = useRef(null);
     const remoteTokenRef = useRef(loadFacebookMonitorRemoteToken());
+    const remoteBackgroundSeqRef = useRef(0);
+    const remoteBackgroundBusyRef = useRef(false);
     const iosNetworkFingerprintBusyRef = useRef(false);
     const iosNetworkFingerprintLastAtRef = useRef(0);
     const monitorBase = monitorBaseRef.current;
@@ -1738,75 +1749,144 @@ const FacebookLatestTicker = () => {
         }
     };
 
+    const mapRemoteCloudItems = rows => (Array.isArray(rows) ? rows : []).map(x => ({
+        id: x.remote_key || x.external_id || x.permalink,
+        remote_key: x.remote_key,
+        page_name: x.page_name || '',
+        published_at: x.published_at || '',
+        headline: improveRemoteHeadline(x.headline, x.message, x.page_name),
+        message: x.message || '',
+        url: x.permalink || '#',
+        permalink: x.permalink || '#'
+    }));
+
+    const mergeRemoteCloudItems = (base, incoming) => {
+        const map = new Map();
+        [...(Array.isArray(base) ? base : []), ...(Array.isArray(incoming) ? incoming : [])].forEach(item => {
+            const key = getItemKey(item) || String(item.remote_key || item.permalink || item.id || '');
+            if (key) map.set(key, item);
+        });
+        return Array.from(map.values()).sort((a,b) => (Date.parse(b.published_at || '') || 0) - (Date.parse(a.published_at || '') || 0));
+    };
+
+    const applyRemoteCloudMeta = data => {
+        const nextLimit = normalizeDisplayLimit(data.display_limit);
+        const nextHistoryHours = [24,48,72].includes(Number(data.history_hours)) ? Number(data.history_hours) : 72;
+        const requestedDisplayHours = [24,48,72].includes(Number(data.display_hours)) ? Number(data.display_hours) : 24;
+        const nextDisplayHours = Math.min(requestedDisplayHours, nextHistoryHours);
+        const presenceLastSeen = data.monitor_last_seen_at || null;
+        const presenceLastRun = data.monitor_last_run_at || data.updated_at || null;
+        const nextPresence = {
+            online: typeof data.monitor_online === 'boolean' ? data.monitor_online : null,
+            systemOnline: typeof data.system_online === 'boolean' ? data.system_online : (typeof data.monitor_online === 'boolean' ? data.monitor_online : null),
+            updateEnabled: typeof data.monitor_update_enabled === 'boolean' ? data.monitor_update_enabled : null,
+            lastSeenAt: presenceLastSeen,
+            lastRunAt: presenceLastRun,
+            activeDeviceType: data.active_device_type || null,
+            activeDeviceId: data.active_device_id || null,
+            activeState: data.active_state || null,
+            activeLastSeenAt: data.active_last_seen_at || null,
+            activeHeartbeatAgeSeconds: Number.isFinite(Number(data.active_heartbeat_age_seconds)) ? Number(data.active_heartbeat_age_seconds) : null,
+            cycleCount: Number(data.cycle_count || 0),
+            currentCycleNumber: Number(data.current_cycle_number || 0),
+            currentPage: String(data.current_page || ''),
+            runTotalPages: Number(data.run_total_pages || 0),
+            runCompletedPages: Number(data.run_completed_pages || 0),
+            nextRunAt: data.next_run_at || null
+        };
+        setRemoteDisplayLimit(nextLimit);
+        setRemoteDisplayHours(nextDisplayHours);
+        setRemoteHistoryHours(nextHistoryHours);
+        if (data.available_count !== null && data.available_count !== undefined) setRemoteAvailableCount(Number(data.available_count || 0));
+        if (data.total !== null && data.total !== undefined) setRemoteRetainedCount(Number(data.total || 0));
+        setRemoteUpdatedAt(presenceLastRun || presenceLastSeen || new Date().toISOString());
+        setRemotePresence(nextPresence);
+        if (data.connection_mode) saveFacebookMonitorConnectionMode(data.connection_mode);
+        if (data.remote_url) { try { localStorage.setItem('fb_monitor_remote_url', String(data.remote_url)); } catch (e) { } }
+        return {nextLimit,nextDisplayHours,nextHistoryHours,nextPresence,presenceLastRun,presenceLastSeen};
+    };
+
+    const loadRemoteCloudHistory = async (token, seq) => {
+        const pageSize = 60;
+        let offset = 0;
+        let accumulated = [];
+        let lastMeta = null;
+        let lastAvailableCount = null;
+        let lastRetainedCount = null;
+        remoteBackgroundBusyRef.current = true;
+        setRemoteProgressLoading(true);
+        try {
+            while (seq === remoteBackgroundSeqRef.current) {
+                const page = await fetchFacebookMonitorRemoteFeed(token, pageSize, offset, false);
+                if (!page || page.ok === false || page.authenticated === false) {
+                    if (isExplicitFacebookMonitorRemoteAuthFailure(page)) return;
+                    throw new Error(String(page && (page.error || page.message) || 'REMOTE_PAGE_ERROR'));
+                }
+                const mapped = mapRemoteCloudItems(page.items);
+                accumulated = offset === 0 ? mapped : mergeRemoteCloudItems(accumulated, mapped);
+                lastMeta = applyRemoteCloudMeta(page);
+                if (page.available_count !== null && page.available_count !== undefined) lastAvailableCount = Number(page.available_count);
+                if (page.total !== null && page.total !== undefined) lastRetainedCount = Number(page.total);
+                const exactTotal = Number(page.target_count);
+                const total = Number.isFinite(exactTotal) ? exactTotal : Number(page.available_count);
+                setRemoteProgressLoaded(accumulated.length);
+                setRemoteProgressTotal(Number.isFinite(total) ? total : null);
+                setRemoteItems(accumulated);
+                setRemoteUsingCache(false);
+                setRemoteAuthState('ready');
+                setRemoteError('');
+                if (!page.has_more || page.next_offset === null || page.next_offset === undefined) break;
+                const next = Number(page.next_offset);
+                if (!Number.isFinite(next) || next <= offset) break;
+                offset = next;
+                await new Promise(resolve => setTimeout(resolve, 80));
+            }
+            if (seq === remoteBackgroundSeqRef.current && lastMeta) {
+                saveFacebookMonitorRemoteCache({items:accumulated, displayLimit:lastMeta.nextLimit, displayHours:lastMeta.nextDisplayHours, historyHours:lastMeta.nextHistoryHours, availableCount:Number.isFinite(lastAvailableCount) ? lastAvailableCount : accumulated.length, retainedCount:Number.isFinite(lastRetainedCount) ? lastRetainedCount : accumulated.length, presence:lastMeta.nextPresence, updatedAt:lastMeta.presenceLastRun || lastMeta.presenceLastSeen || new Date().toISOString(), cachedAt:new Date().toISOString()});
+            }
+        } catch (e) {
+            console.warn('Google Remote background feed error', e);
+        } finally {
+            remoteBackgroundBusyRef.current = false;
+            if (seq === remoteBackgroundSeqRef.current) setRemoteProgressLoading(false);
+        }
+    };
+
     const loadRemoteCloudFeed = async (silent = false) => {
         const token = remoteTokenRef.current || loadFacebookMonitorRemoteToken();
         if (!token) { setRemoteAuthState('login'); setRemoteItems([]); return; }
+        if (silent && remoteBackgroundBusyRef.current) return;
         if (!silent) setRemoteAuthState(prev => remoteItems.length ? prev : 'loading');
+        const seq = silent ? remoteBackgroundSeqRef.current : ++remoteBackgroundSeqRef.current;
         try {
-            const data = await fetchFacebookMonitorRemoteFeed(token);
+            // Fast first paint: only 15 latest rows. The exact 24/48/72-hour window
+            // continues in the background, so mobile users can start reading at once.
+            const data = await fetchFacebookMonitorRemoteFeed(token, 15, 0, true);
             if (!data || data.ok === false || data.authenticated === false) {
-                // v0.1.93: Never destroy a valid 30-day session just because
-                // Apps Script / Google / Sheet has a temporary feed error.
-                // Only explicit authentication failures are allowed to log out.
                 if (isExplicitFacebookMonitorRemoteAuthFailure(data)) {
                     clearFacebookMonitorRemoteToken(); remoteTokenRef.current = ''; setRemoteAuthState('login'); setRemoteItems([]); setRemoteError(''); return;
                 }
                 throw new Error(String(data && (data.error || data.message) || 'REMOTE_ERROR'));
             }
-            // Save the server-selected mode before any iOS LAN handoff decision.
-            // This makes Google Remote only authoritative immediately, even if
-            // this Safari tab still has an older localStorage value.
             const remoteMode = normalizeFacebookMonitorConnectionMode(data.connection_mode || data.monitor_connection_mode || getFacebookMonitorConnectionMode());
             if (data.connection_mode || data.monitor_connection_mode) saveFacebookMonitorConnectionMode(remoteMode);
             if (FB_MONITOR_IS_IOS_GITHUB && remoteMode !== 'google' && await tryIosNetworkFingerprintSwitch(data, true)) return;
-            const items = (Array.isArray(data.items) ? data.items : []).map(x => ({
-                id: x.remote_key || x.external_id || x.permalink,
-                remote_key: x.remote_key,
-                page_name: x.page_name || '',
-                published_at: x.published_at || '',
-                headline: improveRemoteHeadline(x.headline, x.message, x.page_name),
-                message: x.message || '',
-                url: x.permalink || '#',
-                permalink: x.permalink || '#'
-            }));
-            const nextLimit = normalizeDisplayLimit(data.display_limit);
-            const nextHistoryHours = [24,48,72].includes(Number(data.history_hours)) ? Number(data.history_hours) : 72;
-            const requestedDisplayHours = [24,48,72].includes(Number(data.display_hours)) ? Number(data.display_hours) : 24;
-            const nextDisplayHours = Math.min(requestedDisplayHours, nextHistoryHours);
-            const presenceLastSeen = data.monitor_last_seen_at || null;
-            const presenceLastRun = data.monitor_last_run_at || data.updated_at || null;
-            const nextPresence = {
-                online: typeof data.monitor_online === 'boolean' ? data.monitor_online : null,
-                systemOnline: typeof data.system_online === 'boolean' ? data.system_online : (typeof data.monitor_online === 'boolean' ? data.monitor_online : null),
-                updateEnabled: typeof data.monitor_update_enabled === 'boolean' ? data.monitor_update_enabled : null,
-                lastSeenAt: presenceLastSeen,
-                lastRunAt: presenceLastRun,
-                activeDeviceType: data.active_device_type || null,
-                activeDeviceId: data.active_device_id || null,
-                activeState: data.active_state || null,
-                activeLastSeenAt: data.active_last_seen_at || null,
-                activeHeartbeatAgeSeconds: Number.isFinite(Number(data.active_heartbeat_age_seconds)) ? Number(data.active_heartbeat_age_seconds) : null,
-                cycleCount: Number(data.cycle_count || 0),
-                currentCycleNumber: Number(data.current_cycle_number || 0),
-                currentPage: String(data.current_page || ''),
-                runTotalPages: Number(data.run_total_pages || 0),
-                runCompletedPages: Number(data.run_completed_pages || 0),
-                nextRunAt: data.next_run_at || null
-            };
-            setRemoteItems(items);
-            setRemoteDisplayLimit(nextLimit);
-            setRemoteDisplayHours(nextDisplayHours);
-            setRemoteHistoryHours(nextHistoryHours);
-            setRemoteAvailableCount(Number(data.available_count ?? items.length));
-            setRemoteRetainedCount(Number(data.total ?? data.retained_count ?? items.length));
-            setRemoteUpdatedAt(presenceLastRun || presenceLastSeen || new Date().toISOString());
-            setRemotePresence(nextPresence);
+            const fastItems = mapRemoteCloudItems(data.items);
+            const meta = applyRemoteCloudMeta(data);
+            if (silent && remoteItems.length) setRemoteItems(prev => mergeRemoteCloudItems(prev, fastItems));
+            else setRemoteItems(fastItems);
+            setRemoteProgressLoaded(fastItems.length);
+            setRemoteProgressTotal(null);
             setRemoteUsingCache(false);
-            if (data.connection_mode) saveFacebookMonitorConnectionMode(data.connection_mode);
-            if (data.remote_url) { try { localStorage.setItem('fb_monitor_remote_url', String(data.remote_url)); } catch (e) { } }
-            saveFacebookMonitorRemoteCache({items, displayLimit:nextLimit, displayHours:nextDisplayHours, historyHours:nextHistoryHours, availableCount:Number(data.available_count ?? items.length), retainedCount:Number(data.total ?? data.retained_count ?? items.length), presence:nextPresence, updatedAt:presenceLastRun || presenceLastSeen || new Date().toISOString(), cachedAt:new Date().toISOString()});
             setRemoteAuthState('ready');
             setRemoteError('');
+            if (!silent) {
+                // Do not await. The 15 newest headlines stay usable while history fills.
+                loadRemoteCloudHistory(token, seq);
+            } else {
+                const cachedItems = silent && remoteItems.length ? mergeRemoteCloudItems(remoteItems, fastItems) : fastItems;
+                saveFacebookMonitorRemoteCache({items:cachedItems, displayLimit:meta.nextLimit, displayHours:meta.nextDisplayHours, historyHours:meta.nextHistoryHours, availableCount:Number(remoteAvailableCount || cachedItems.length), retainedCount:Number(remoteRetainedCount || cachedItems.length), presence:meta.nextPresence, updatedAt:meta.presenceLastRun || meta.presenceLastSeen || new Date().toISOString(), cachedAt:new Date().toISOString()});
+            }
         } catch (e) {
             console.warn('Google Remote feed error', e);
             const code = String(e && e.message || e || '');
@@ -2346,10 +2426,10 @@ const FacebookLatestTicker = () => {
         const remoteCycleNumber = Number(remotePresence.currentCycleNumber || remotePresence.cycleCount || 0);
         const remoteStatusParts = [];
         if (remoteStopped) {
-            remoteStatusParts.push('OffLine');
+            remoteStatusParts.push('OffLine G');
             if (remoteLastSeen) remoteStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
         } else {
-            remoteStatusParts.push('Online');
+            remoteStatusParts.push('Online G');
             if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
             if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
             if (remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
@@ -2378,7 +2458,8 @@ const FacebookLatestTicker = () => {
                         )
                     ),
                     remoteError && React.createElement('div',{className:'text-xs text-red-500 leading-relaxed'},remoteError)
-                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center'},'กำลังโหลดข่าวล่าสุด…')
+                ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center gap-2'},
+                    React.createElement(Icon,{name:'loader-circle',size:14,className:'spin'}), React.createElement('span',null,'กำลังโหลดข่าวล่าสุด…'))
                 : remoteAuthState === 'error' ? React.createElement('div',{className:'p-5 text-center flex-1 flex flex-col items-center justify-center gap-3'},
                     React.createElement('div',{className:'text-xs text-red-500',title:remoteError || ''},'เชื่อมต่อ Google Remote ไม่สำเร็จ'),
                     React.createElement('button',{type:'button',onClick:()=>setRetryNonce(v=>v+1),className:'px-3 py-2 rounded-lg border text-xs font-bold'},'ลองใหม่'),
@@ -2387,6 +2468,10 @@ const FacebookLatestTicker = () => {
                     React.createElement('div',{ref:tickerViewportRef,className:'fb-monitor-ticker-viewport',onWheel:noteUserInteraction,onTouchStart:noteUserInteraction,onPointerDown:noteUserInteraction,onScroll:handleTickerScroll},
                         React.createElement('div',{className:'fb-monitor-ticker-track'},remoteRows || React.createElement('div',{className:'p-5 text-center text-xs text-gray-400'},'ยังไม่มีข่าวบน Cloud'))
                     )
+                ),
+                remoteProgressLoading && React.createElement('div',{className:'fb-monitor-cloud-progress'},
+                    React.createElement(Icon,{name:'loader-circle',size:13,className:'spin'}),
+                    React.createElement('span',null,remoteProgressTotal ? `กำลังโหลดข่าวย้อนหลัง ${remoteProgressLoaded}/${remoteProgressTotal}` : `กำลังโหลดข่าวย้อนหลัง ${remoteProgressLoaded} ข่าว`)
                 ),
                 React.createElement('div',{className:'fb-monitor-sidebar-footer'},
                     React.createElement('a',{href:getFacebookMonitorRemoteUrl(),target:'_blank',rel:'noopener',className:'fb-monitor-all-link'},React.createElement('span',null,`ดูข่าวทั้งหมด ${remoteRetainedCount || ''}${remoteRetainedCount ? ' ข่าว' : ''} · เก็บ ${remoteHistoryHours} ชม.`),React.createElement(Icon,{name:'arrow-up-right',size:13}))
@@ -2462,10 +2547,10 @@ const FacebookLatestTicker = () => {
     const localStopped = monitorState.schedulerEnabled === false;
     const localStatusParts = [];
     if (localStopped) {
-        localStatusParts.push('OffLine');
+        localStatusParts.push('OffLine L');
         if (monitorState.updatedAt) localStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
     } else {
-        localStatusParts.push('Online');
+        localStatusParts.push('Online L');
         if (localCycleNumber > 0) localStatusParts.push(`รอบที่ ${localCycleNumber}`);
         if (monitorState.updatedAt) localStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
         if (monitorState.nextRunAt) localStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
