@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.99">
+    <meta name="cm108-dashboard-version" content="0.1.100">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.99';
+        const CURRENT_DASHBOARD_VERSION = '0.1.100';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v198';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1100';
         let checking = false;
         let reloading = false;
 
@@ -1784,6 +1784,8 @@ const FacebookLatestTicker = () => {
                 activeDeviceType: data.active_device_type || null,
                 activeDeviceId: data.active_device_id || null,
                 activeState: data.active_state || null,
+                activeLastSeenAt: data.active_last_seen_at || null,
+                activeHeartbeatAgeSeconds: Number.isFinite(Number(data.active_heartbeat_age_seconds)) ? Number(data.active_heartbeat_age_seconds) : null,
                 cycleCount: Number(data.cycle_count || 0),
                 currentCycleNumber: Number(data.current_cycle_number || 0),
                 currentPage: String(data.current_page || ''),
@@ -2330,12 +2332,17 @@ const FacebookLatestTicker = () => {
         const remoteActiveState = String(remotePresence.activeState || '').toLowerCase();
         const remoteActiveDeviceType = String(remotePresence.activeDeviceType || '').toLowerCase();
         const remoteStateStopped = ['offline','stopped','disabled','off'].includes(remoteActiveState);
-        // `system_online` means a device heartbeat is still reachable.  It can stay
-        // true briefly after Windows has been explicitly stopped.  For the ticker
-        // the user cares whether the Monitor is enabled, not merely whether the PC
-        // can still answer a heartbeat. Android remains authoritative when it has
-        // actually taken over the continuous monitor.
-        const remoteStopped = remoteSystemOnline === false || remoteStateStopped || (remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android');
+        // v0.1.100: do not trust an old Online flag forever. Windows publishes a
+        // heartbeat every ~60s, so 150s allows two missed beats before declaring
+        // it stale. Android gets a wider 5-minute window because mobile browsers
+        // may throttle background timers. This also works with cached Cloud data.
+        const remoteHeartbeatTtlSeconds = remoteActiveDeviceType === 'android' ? 300 : 150;
+        const remoteActiveLastSeenMs = Date.parse(String(remotePresence.activeLastSeenAt || ''));
+        const remoteComputedHeartbeatAge = Number.isFinite(remoteActiveLastSeenMs)
+            ? Math.max(0, (Date.now() - remoteActiveLastSeenMs) / 1000)
+            : Number(remotePresence.activeHeartbeatAgeSeconds);
+        const remoteHeartbeatStale = Number.isFinite(remoteComputedHeartbeatAge) && remoteComputedHeartbeatAge > remoteHeartbeatTtlSeconds;
+        const remoteStopped = remoteSystemOnline === false || remoteStateStopped || remoteHeartbeatStale || (remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android');
         const remoteCycleNumber = Number(remotePresence.currentCycleNumber || remotePresence.cycleCount || 0);
         const remoteStatusParts = [];
         if (remoteStopped) {
