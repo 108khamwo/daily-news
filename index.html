@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.93">
+    <meta name="cm108-dashboard-version" content="0.1.96">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.95';
+        const CURRENT_DASHBOARD_VERSION = '0.1.96';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v194';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v196';
         let checking = false;
         let reloading = false;
 
@@ -69,7 +69,22 @@
                 const remote = String(data && data.version || '').trim();
                 if (!remote) return;
 
-                if (remote === CURRENT_DASHBOARD_VERSION) {
+                // Reload only when the published version is actually NEWER.
+                // Older/stale dashboard-version.json files must never force a refresh.
+                const compareDashboardVersions = (a, b) => {
+                    const pa = String(a || '').split('.').map(v => parseInt(v, 10) || 0);
+                    const pb = String(b || '').split('.').map(v => parseInt(v, 10) || 0);
+                    const n = Math.max(pa.length, pb.length);
+                    for (let i = 0; i < n; i++) {
+                        const av = pa[i] || 0;
+                        const bv = pb[i] || 0;
+                        if (av > bv) return 1;
+                        if (av < bv) return -1;
+                    }
+                    return 0;
+                };
+
+                if (compareDashboardVersions(remote, CURRENT_DASHBOARD_VERSION) <= 0) {
                     clearReloadAttempt();
                     return;
                 }
