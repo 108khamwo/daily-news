@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.96">
+    <meta name="cm108-dashboard-version" content="0.1.97">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.96';
+        const CURRENT_DASHBOARD_VERSION = '0.1.97';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v196';
         let checking = false;
@@ -1427,7 +1427,7 @@ const saveFacebookMonitorReadKeys = (keys) => {
 };
 const FacebookLatestTicker = () => {
     const [playItems, setPlayItems] = useState([]);
-    const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 50, displayHours: 24, historyHours: 72, availableCount: 0, retainedCount: 0, cycleCount: 0, currentCycleNumber: 0, nextRunAt: null, runTotalPages: 0, runCompletedPages: 0 });
+    const [monitorState, setMonitorState] = useState({ loading: true, connected: false, running: false, schedulerEnabled: null, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 50, displayHours: 24, historyHours: 72, availableCount: 0, retainedCount: 0, cycleCount: 0, currentCycleNumber: 0, nextRunAt: null, runTotalPages: 0, runCompletedPages: 0 });
     const [showUpdateNotice, setShowUpdateNotice] = useState(false);
     const [pendingNewCount, setPendingNewCount] = useState(0);
     const [browsingOlder, setBrowsingOlder] = useState(false);
@@ -2018,7 +2018,7 @@ const FacebookLatestTicker = () => {
                 setAllNewsBase(resolveFacebookMonitorAllNewsBase(data, discovered.base));
                 setFeedMode('lan');
                 setMonitorState({
-                    loading: false, connected: true, running: Boolean(data.running), updatedAt: data.updated_at || null,
+                    loading: false, connected: true, running: Boolean(data.running), schedulerEnabled: typeof data.scheduler_enabled === 'boolean' ? data.scheduler_enabled : true, updatedAt: data.updated_at || null,
                     checkIntervalMinutes: Math.max(1, Number(data.check_interval_minutes) || 10),
                     displayLimit: normalizeDisplayLimit(data.display_limit), displayHours:Number(data.latest_news_hours || 24), historyHours:Number(data.history_hours || 72),
                     availableCount:Number(data.available_count || 0), retainedCount:Number(data.retained_count || 0), cycleCount:Number(data.cycle_count || 0), currentCycleNumber:Number(data.current_cycle_number || 0), nextRunAt:data.next_run_at || null, runTotalPages:Number(data.run_total_pages || 0), runCompletedPages:Number(data.run_completed_pages || 0)
@@ -2097,7 +2097,7 @@ const FacebookLatestTicker = () => {
                 return;
             }
             if (!monitorBase) {
-                setMonitorState({ loading: false, connected: false, running: false, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 50 });
+                setMonitorState({ loading: false, connected: false, running: false, schedulerEnabled: null, updatedAt: null, checkIntervalMinutes: 10, displayLimit: 50 });
                 return;
             }
             try {
@@ -2153,7 +2153,7 @@ const FacebookLatestTicker = () => {
                 getFacebookMonitorPermissionState().then(state => { if (alive) setPermissionState(state); }).catch(() => {});
                 setShowConnectionWarning(false);
                 setShowWarningDetails(false);
-                setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: nextUpdatedAt, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit, displayHours:Number(data.latest_news_hours || 24), historyHours:Number(data.history_hours || 72), availableCount:Number(data.available_count || nextItems.length), retainedCount:Number(data.retained_count || nextItems.length), cycleCount:Number(data.cycle_count || 0), currentCycleNumber:Number(data.current_cycle_number || 0), nextRunAt:data.next_run_at || null, runTotalPages:Number(data.run_total_pages || 0), runCompletedPages:Number(data.run_completed_pages || 0) });
+                setMonitorState({ loading: false, connected: true, running: Boolean(data.running), schedulerEnabled: typeof data.scheduler_enabled === 'boolean' ? data.scheduler_enabled : true, updatedAt: nextUpdatedAt, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit, displayHours:Number(data.latest_news_hours || 24), historyHours:Number(data.history_hours || 72), availableCount:Number(data.available_count || nextItems.length), retainedCount:Number(data.retained_count || nextItems.length), cycleCount:Number(data.cycle_count || 0), currentCycleNumber:Number(data.current_cycle_number || 0), nextRunAt:data.next_run_at || null, runTotalPages:Number(data.run_total_pages || 0), runCompletedPages:Number(data.run_completed_pages || 0) });
 
                 if (nextUpdatedAt && nextUpdatedAt !== lastUpdatedAtRef.current) {
                     lastUpdatedAtRef.current = nextUpdatedAt;
@@ -2289,7 +2289,7 @@ const FacebookLatestTicker = () => {
             displayLimitRef.current = nextDisplayLimit;
             knownItemIdsRef.current = new Set(nextItems.map(getItemKey));
             setPlayItems(nextItems);
-            setMonitorState({ loading: false, connected: true, running: Boolean(data.running), updatedAt: data.updated_at || null, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit });
+            setMonitorState({ loading: false, connected: true, running: Boolean(data.running), schedulerEnabled: typeof data.scheduler_enabled === 'boolean' ? data.scheduler_enabled : true, updatedAt: data.updated_at || null, checkIntervalMinutes: nextInterval, displayLimit: nextDisplayLimit });
             setHasConnectedThisSession(true);
             everConnectedRef.current = true;
             setShowConnectionWarning(false);
@@ -2345,12 +2345,26 @@ const FacebookLatestTicker = () => {
         const remoteLatestTitle = `${remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${remoteDisplayHours} ชม.`;
         const remoteLastSeen = remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
         const remoteSystemOnline = remotePresence.systemOnline !== null && remotePresence.systemOnline !== undefined ? remotePresence.systemOnline : remotePresence.online;
-        const remoteStopped = remoteSystemOnline === false || ((remoteSystemOnline === null || remoteSystemOnline === undefined) && remotePresence.updateEnabled === false);
+        const remoteActiveState = String(remotePresence.activeState || '').toLowerCase();
+        const remoteActiveDeviceType = String(remotePresence.activeDeviceType || '').toLowerCase();
+        const remoteStateStopped = ['offline','stopped','disabled','off'].includes(remoteActiveState);
+        // `system_online` means a device heartbeat is still reachable.  It can stay
+        // true briefly after Windows has been explicitly stopped.  For the ticker
+        // the user cares whether the Monitor is enabled, not merely whether the PC
+        // can still answer a heartbeat. Android remains authoritative when it has
+        // actually taken over the continuous monitor.
+        const remoteStopped = remoteSystemOnline === false || remoteStateStopped || (remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android');
         const remoteCycleNumber = Number(remotePresence.currentCycleNumber || remotePresence.cycleCount || 0);
-        const remoteStatusParts = [remoteStopped ? 'Offline' : 'Online'];
-        if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
-        if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
-        if (!remoteStopped && remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
+        const remoteStatusParts = [];
+        if (remoteStopped) {
+            remoteStatusParts.push('OffLine');
+            if (remoteLastSeen) remoteStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
+        } else {
+            remoteStatusParts.push('Online');
+            if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
+            if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
+            if (remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
+        }
         const remoteStatus = remoteStatusParts.join(' · ');
         return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
             React.createElement('button', { type:'button', className:'fb-monitor-collapsed-tab', onClick:toggleCollapsed, title:'ขยายข่าวล่าสุดผ่าน Cloud' },
@@ -2358,7 +2372,7 @@ const FacebookLatestTicker = () => {
             React.createElement('div',{className:'fb-monitor-expanded flex flex-col min-h-0 h-full'},
                 React.createElement('div',{className:'fb-monitor-sidebar-head'},
                     React.createElement('div',{className:'fb-monitor-sidebar-headline'},
-                        React.createElement('span',{className:`fb-monitor-dot ${remoteSystemOnline === false ? 'offline' : (remotePresence.activeState === 'running' ? 'running' : 'online')}`}),
+                        React.createElement('span',{className:`fb-monitor-dot ${remoteStopped ? 'offline' : (remotePresence.activeState === 'running' ? 'running' : 'online')}`}),
                         React.createElement('div',{className:'fb-monitor-sidebar-title-text'},remoteLatestTitle),
                         React.createElement('div',{className:'fb-monitor-head-actions'},
                             React.createElement('button',{type:'button',className:'fb-monitor-float-btn',onClick:()=>window.open(getFacebookMonitorRemoteUrl(),'_blank'),title:'เปิด Remote News เต็มหน้า'},React.createElement(Icon,{name:'external-link',size:16})),
@@ -2456,12 +2470,19 @@ const FacebookLatestTicker = () => {
     const latestCountLabel = displayLimit === 0 ? `ข่าวล่าสุด · ${monitorState.displayHours} ชม.` : `${displayLimit} ข่าวล่าสุด · ${monitorState.displayHours} ชม.`;
     const latestTitle = `${displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${displayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${monitorState.displayHours} ชม.`;
     const localCycleNumber = Number(monitorState.currentCycleNumber || monitorState.cycleCount || 0);
-    const localStatusParts = ['Online'];
-    if (localCycleNumber > 0) localStatusParts.push(`รอบที่ ${localCycleNumber}`);
-    if (monitorState.updatedAt) localStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
-    if (monitorState.nextRunAt) localStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
+    const localStopped = monitorState.schedulerEnabled === false;
+    const localStatusParts = [];
+    if (localStopped) {
+        localStatusParts.push('OffLine');
+        if (monitorState.updatedAt) localStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
+    } else {
+        localStatusParts.push('Online');
+        if (localCycleNumber > 0) localStatusParts.push(`รอบที่ ${localCycleNumber}`);
+        if (monitorState.updatedAt) localStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
+        if (monitorState.nextRunAt) localStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
+    }
     const statusCopy = localStatusParts.join(' · ');
-    const dotClass = monitorState.running ? 'running' : 'online';
+    const dotClass = localStopped ? 'offline' : (monitorState.running ? 'running' : 'online');
 
     const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
         const itemKey = getItemKey(item);
