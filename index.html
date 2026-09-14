@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.91">
+    <meta name="cm108-dashboard-version" content="0.1.92">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.91';
+        const CURRENT_DASHBOARD_VERSION = '0.1.92';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v191';
         let checking = false;
@@ -960,6 +960,57 @@ const fetchFacebookMonitorRemoteFeed = (token, limit = null) => {
 };
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
+
+const normalizeRemoteHeadlineText = value => String(value || '').replace(/\s+/g, ' ').trim();
+const remoteHeadlineMeaningfulLength = value => normalizeRemoteHeadlineText(value).replace(/[^\p{L}\p{N}]+/gu, '').length;
+const isGenericFacebookMediaHeadline = value => {
+    const s = normalizeRemoteHeadlineText(value).toLowerCase();
+    if (!s) return true;
+    return s.startsWith('อาจเป็นรูปภาพของ') || s.startsWith('รูปภาพของ') || s.includes('ไม่มีคำอธิบายรูปภาพ') ||
+           s.startsWith('may be an image of') || s.startsWith('image may contain') || s.includes('no photo description available');
+};
+const remoteHeadlineLooksBodyLead = value => {
+    const s = normalizeRemoteHeadlineText(value).replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase();
+    return ['วันนี้','เมื่อวันที่','เมื่อเวลา','เมื่อช่วง','เวลา ','ณ ','จากกรณี','ตามที่','ทั้งนี้','โดย ','สำหรับ ','ขณะ ','ผู้สื่อข่าว','ต่อมา','เบื้องต้น','ล่าสุดเมื่อ'].some(x => s.startsWith(x));
+};
+const cleanRemoteHeadlineLines = (message, pageName='') => {
+    const page = normalizeRemoteHeadlineText(pageName).toLowerCase();
+    const ui = new Set(['ดูเพิ่มเติม','see more','แปล','translate','ถูกใจ','แสดงความคิดเห็น','แชร์','ส่งข้อความ','like','comment','share','ติดตาม','follow','following']);
+    return String(message || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).filter(line => {
+        const s = normalizeRemoteHeadlineText(line);
+        const low = s.toLowerCase();
+        if (!s || ui.has(low) || isGenericFacebookMediaHeadline(s)) return false;
+        if (page && low === page) return false;
+        if (/^\d+\s*(?:นาที|ชม\.?|ชั่วโมง|วัน|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)$/i.test(low)) return false;
+        return true;
+    });
+};
+const deriveRemoteHeadlineFromMessage = (message, pageName='') => {
+    const lines = cleanRemoteHeadlineLines(message, pageName);
+    if (!lines.length) return '';
+    const first = lines[0];
+    if (lines.length < 2) return first;
+    const second = lines[1];
+    const a = remoteHeadlineMeaningfulLength(first), b = remoteHeadlineMeaningfulLength(second);
+    const secondStartsSymbol = !!second && !/^[\p{L}\p{N}]/u.test(second.trim());
+    const firstStrong = /[!?！？]$/.test(first) || /(ด่วน|เตือน|ประกาศ|แจ้ง|ปิด|เปิด|จับ|พบ|เกิด|ไฟไหม้|อุบัติเหตุ|แผ่นดินไหว|ฝนตก|น้ำท่วม|พายุ|รถติด|เสียชีวิต|บาดเจ็บ|เฝ้าระวัง)/i.test(first);
+    if (a <= 48 && b >= 10 && b <= 96 && a + b <= 138 && !remoteHeadlineLooksBodyLead(second) && (firstStrong || a <= 20 || secondStartsSymbol)) {
+        return first + (secondStartsSymbol ? '' : ' ') + second;
+    }
+    return first;
+};
+const improveRemoteHeadline = (headline, message, pageName='') => {
+    const oldTitle = normalizeRemoteHeadlineText(headline);
+    const derived = normalizeRemoteHeadlineText(deriveRemoteHeadlineFromMessage(message, pageName));
+    if (!derived) return oldTitle || '(ไม่มีหัวข้อ)';
+    if (!oldTitle || isGenericFacebookMediaHeadline(oldTitle)) return derived;
+    const canon = s => normalizeRemoteHeadlineText(s).replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+    const oldCanon = canon(oldTitle), newCanon = canon(derived);
+    if (newCanon && oldCanon && newCanon.startsWith(oldCanon) && newCanon.length > oldCanon.length) return derived;
+    if (remoteHeadlineMeaningfulLength(oldTitle) <= 28 && remoteHeadlineMeaningfulLength(derived) >= remoteHeadlineMeaningfulLength(oldTitle) + 8 && !remoteHeadlineLooksBodyLead(derived)) return derived;
+    return oldTitle;
+};
+
 const normalizeFacebookMonitorIpv6Prefix64 = value => {
     let raw = String(value || '').trim().toLowerCase();
     if (!raw || !raw.includes(':')) return '';
@@ -1624,7 +1675,7 @@ const FacebookLatestTicker = () => {
                 remote_key: x.remote_key,
                 page_name: x.page_name || '',
                 published_at: x.published_at || '',
-                headline: x.headline || '(ไม่มีหัวข้อ)',
+                headline: improveRemoteHeadline(x.headline, x.message, x.page_name),
                 message: x.message || '',
                 url: x.permalink || '#',
                 permalink: x.permalink || '#'
@@ -2181,7 +2232,7 @@ const FacebookLatestTicker = () => {
                     item.page_name && React.createElement('span', { className: 'fb-monitor-row-source' }, item.page_name),
                     isRead && React.createElement('span', { className: 'fb-monitor-read-badge' }, '✓ อ่านแล้ว')
                 ),
-                React.createElement('div', { className: 'fb-monitor-row-title' }, item.headline || '(ไม่มีหัวข้อ)')
+                React.createElement('div', { className: 'fb-monitor-row-title' }, improveRemoteHeadline(item.headline, item.message, item.page_name))
             );
         }) : null;
         const remoteLatestTitle = `${remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${remoteDisplayHours} ชม.`;
