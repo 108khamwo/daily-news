@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.103">
+    <meta name="cm108-dashboard-version" content="0.1.104">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.103';
+        const CURRENT_DASHBOARD_VERSION = '0.1.104';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1103';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
         let reloading = false;
 
@@ -1045,17 +1045,17 @@ const loginFacebookMonitorRemoteDirect = async (password, remember = true) => {
 
 const fetchFacebookMonitorRemoteFeed = (token, pageSize = null, offset = 0, fast = false, timeoutMs = 45000, maxAttempts = 3) => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
-    // v0.1.103: latest 15 and full-history requests use separate JSONP callbacks,
+    // v0.1.104: latest 15 and history-page requests use separate JSONP callbacks,
     // so a slow history refresh never blocks the lightweight latest-news poll.
     const params = { api:'feed', token:String(token), compact:'1' };
     if (pageSize !== null && pageSize !== undefined) params.page_size = String(pageSize);
     if (offset) params.offset = String(offset);
     if (fast) params.fast = '1';
-    return fetchFacebookMonitorRemoteJsonpNamed(fast ? 'cm108RemoteFeedFastV103' : 'cm108RemoteFeedFullV103', params, timeoutMs, maxAttempts);
+    return fetchFacebookMonitorRemoteJsonpNamed(fast ? 'cm108RemoteFeedFastV104' : 'cm108RemoteFeedFullV104', params, timeoutMs, maxAttempts);
 };
 const fetchFacebookMonitorRemoteCount = token => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
-    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedCountV103', {api:'feed_count',token:String(token)}, 25000, 2);
+    return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedCountV104', {api:'feed_count',token:String(token)}, 25000, 2);
 };
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
@@ -1839,87 +1839,124 @@ const FacebookLatestTicker = () => {
 
     const loadRemoteCloudHistory = async (token, seq, totalHint = null) => {
         let lastMeta = null;
+        let lastData = null;
+        let exactItems = [];
+        let offset = 0;
+        let expectedTotal = Number(totalHint);
+        const pageSize = 80;
         remoteBackgroundBusyRef.current = true;
         setRemoteProgressLoading(true);
-        const hint = Number(totalHint);
-        if (Number.isFinite(hint) && hint > 0) setRemoteProgressTotal(hint);
+        if (Number.isFinite(expectedTotal) && expectedTotal >= 0) setRemoteProgressTotal(expectedTotal);
         try {
-            // Ask for the count independently. This reads only the timestamp column
-            // in Apps Script, so the UI can show 15/250 instead of an indefinite spinner.
-            fetchFacebookMonitorRemoteCount(token).then(countData => {
-                if (seq !== remoteBackgroundSeqRef.current || !countData || countData.ok === false) return;
-                const n = Number(countData.target_count ?? countData.available_count ?? countData.total);
-                if (Number.isFinite(n) && n >= 0) setRemoteProgressTotal(n);
-            }).catch(() => {});
-
-            let data = null;
-            let firstError = null;
+            // v0.1.104: load history in bounded pages instead of one very large
+            // JSONP response. This is more reliable on desktop Edge/Chrome and
+            // lets progress continue even if the retained window contains
+            // hundreds of posts.
             try {
-                // One compact full-window request. v0.1.113 server reads only A:G
-                // for compact mode, so this is substantially lighter than v0.1.112.
-                data = await fetchFacebookMonitorRemoteFeed(token, null, 0, false, 40000, 1);
-            } catch (e) {
-                firstError = e;
-            }
-            if (!data) {
-                // A transient Apps Script cold start must not leave the UI stuck at
-                // 15 rows forever. Retry once after a short pause while keeping the
-                // numeric progress visible.
-                await new Promise(resolve => setTimeout(resolve, 1800));
+                const countData = await fetchFacebookMonitorRemoteCount(token);
                 if (seq !== remoteBackgroundSeqRef.current) return;
-                data = await fetchFacebookMonitorRemoteFeed(token, null, 0, false, 50000, 1).catch(e => { throw firstError || e; });
+                if (countData && countData.ok !== false) {
+                    const n = Number(countData.target_count ?? countData.available_count ?? countData.total);
+                    if (Number.isFinite(n) && n >= 0) {
+                        expectedTotal = n;
+                        setRemoteProgressTotal(n);
+                    }
+                }
+            } catch (e) {
+                // Count is only a hint. History pages remain authoritative.
             }
-            if (!data || data.ok === false || data.authenticated === false) {
-                if (isExplicitFacebookMonitorRemoteAuthFailure(data)) return;
-                throw new Error(String(data && (data.error || data.message) || 'REMOTE_HISTORY_ERROR'));
-            }
-            if (seq !== remoteBackgroundSeqRef.current) return;
-            const exactItems = mapRemoteCloudItems(data.items);
-            lastMeta = applyRemoteCloudMeta(data);
-            const total = Number(data.target_count ?? data.available_count ?? exactItems.length);
-            setRemoteProgressTotal(Number.isFinite(total) ? total : exactItems.length);
 
-            // Reveal small client-side chunks. This is visual only; the network has
-            // already finished, so the list cannot get stranded between pages.
-            const revealStep = 40;
-            const firstVisible = Math.min(Math.max(remoteItems.length, 15), exactItems.length);
-            if (firstVisible > 0) {
-                setRemoteItems(exactItems.slice(0, firstVisible));
-                setRemoteProgressLoaded(firstVisible);
+            let pageGuard = 0;
+            while (seq === remoteBackgroundSeqRef.current && pageGuard < 30) {
+                pageGuard += 1;
+                let data = null;
+                let firstError = null;
+                try {
+                    data = await fetchFacebookMonitorRemoteFeed(token, pageSize, offset, false, 35000, 2);
+                } catch (e) {
+                    firstError = e;
+                }
+                if (!data) {
+                    await new Promise(resolve => setTimeout(resolve, 900));
+                    if (seq !== remoteBackgroundSeqRef.current) return;
+                    data = await fetchFacebookMonitorRemoteFeed(token, pageSize, offset, false, 45000, 1)
+                        .catch(e => { throw firstError || e; });
+                }
+                if (!data || data.ok === false || data.authenticated === false) {
+                    if (isExplicitFacebookMonitorRemoteAuthFailure(data)) return;
+                    throw new Error(String(data && (data.error || data.message) || 'REMOTE_HISTORY_ERROR'));
+                }
+                if (seq !== remoteBackgroundSeqRef.current) return;
+
+                lastData = data;
+                const pageItems = mapRemoteCloudItems(data.items);
+                exactItems = mergeRemoteCloudItems(exactItems, pageItems);
+                lastMeta = applyRemoteCloudMeta(data);
+
+                const serverTotal = Number(data.target_count ?? data.available_count);
+                if (Number.isFinite(serverTotal) && serverTotal >= 0) expectedTotal = serverTotal;
+                const shownTotal = Number.isFinite(expectedTotal) ? expectedTotal : exactItems.length;
+                setRemoteProgressTotal(shownTotal);
+                setRemoteItems(exactItems);
+                setRemoteProgressLoaded(exactItems.length);
+                setRemoteUsingCache(false);
+                setRemoteAuthState('ready');
+                setRemoteError('');
+
+                if (!data.has_more) break;
+                const nextOffset = Number(data.next_offset);
+                if (!Number.isFinite(nextOffset) || nextOffset <= offset) {
+                    throw new Error('REMOTE_HISTORY_CURSOR_STALLED');
+                }
+                offset = nextOffset;
+                await new Promise(resolve => setTimeout(resolve, 90));
             }
-            for (let shown = firstVisible; shown < exactItems.length && seq === remoteBackgroundSeqRef.current; shown += revealStep) {
-                const nextShown = Math.min(exactItems.length, shown + revealStep);
-                setRemoteItems(exactItems.slice(0, nextShown));
-                setRemoteProgressLoaded(nextShown);
-                await new Promise(resolve => setTimeout(resolve, 45));
-            }
+
             if (seq !== remoteBackgroundSeqRef.current) return;
-            setRemoteItems(exactItems);
-            setRemoteProgressLoaded(exactItems.length);
-            setRemoteUsingCache(false);
-            setRemoteAuthState('ready');
-            setRemoteError('');
+            if (pageGuard >= 30) throw new Error('REMOTE_HISTORY_PAGE_GUARD');
+
+            const completeEnough = !Number.isFinite(expectedTotal) || expectedTotal <= 0 || exactItems.length >= expectedTotal;
             const refreshedAt = new Date().toISOString();
+
+            // Never mark a short/incomplete desktop load as a fresh one-hour
+            // cache. If Google reported more rows than were received, the next
+            // retry is allowed to continue instead of getting stuck at 15/50.
             saveFacebookMonitorRemoteCache({
                 items: exactItems,
-                displayLimit:lastMeta.nextLimit,
-                displayHours:lastMeta.nextDisplayHours,
-                historyHours:lastMeta.nextHistoryHours,
-                availableCount:Number(data.available_count ?? exactItems.length),
-                retainedCount:Number(data.total ?? exactItems.length),
-                targetCount:Number(data.target_count ?? exactItems.length),
-                historyComplete:true,
-                historyRefreshedAt:refreshedAt,
-                presence:lastMeta.nextPresence,
-                updatedAt:lastMeta.presenceLastRun || lastMeta.presenceLastSeen || refreshedAt,
+                displayLimit:lastMeta ? lastMeta.nextLimit : remoteDisplayLimit,
+                displayHours:lastMeta ? lastMeta.nextDisplayHours : remoteDisplayHours,
+                historyHours:lastMeta ? lastMeta.nextHistoryHours : remoteHistoryHours,
+                availableCount:Number((lastData && lastData.available_count) ?? (Number.isFinite(expectedTotal) ? expectedTotal : exactItems.length)),
+                retainedCount:Number((lastData && lastData.total) ?? remoteRetainedCount ?? exactItems.length),
+                targetCount:Number.isFinite(expectedTotal) ? expectedTotal : exactItems.length,
+                historyComplete:completeEnough,
+                historyRefreshedAt:completeEnough ? refreshedAt : null,
+                presence:lastMeta ? lastMeta.nextPresence : remotePresence,
+                updatedAt:lastMeta ? (lastMeta.presenceLastRun || lastMeta.presenceLastSeen || refreshedAt) : refreshedAt,
                 cachedAt:refreshedAt
             });
+
+            if (!completeEnough) throw new Error('REMOTE_HISTORY_INCOMPLETE');
         } catch (e) {
             console.warn('Google Remote background feed error', e);
-            // Keep the latest 15/cache usable and schedule a future effect retry;
-            // never erase already-visible news just because history refresh failed.
-            const cached = loadFacebookMonitorRemoteCache();
-            if (cached && cached.items && cached.items.length) setRemoteUsingCache(true);
+            // Keep any successfully loaded pages. Partial history is useful, but
+            // it is intentionally not treated as a complete/fresh cache.
+            if (exactItems.length) {
+                setRemoteItems(exactItems);
+                setRemoteProgressLoaded(exactItems.length);
+                const cachedAt = new Date().toISOString();
+                saveFacebookMonitorRemoteCache({
+                    ...(loadFacebookMonitorRemoteCache() || {}),
+                    items: exactItems,
+                    targetCount:Number.isFinite(expectedTotal) ? expectedTotal : exactItems.length,
+                    historyComplete:false,
+                    historyRefreshedAt:null,
+                    cachedAt
+                });
+            } else {
+                const cached = loadFacebookMonitorRemoteCache();
+                if (cached && cached.items && cached.items.length) setRemoteUsingCache(true);
+            }
         } finally {
             remoteBackgroundBusyRef.current = false;
             if (seq === remoteBackgroundSeqRef.current) setRemoteProgressLoading(false);
@@ -1951,7 +1988,9 @@ const FacebookLatestTicker = () => {
 
             const cache = loadFacebookMonitorRemoteCache();
             const cacheMatches = remoteCacheSettingsMatch(cache, meta.nextLimit, meta.nextDisplayHours, meta.nextHistoryHours);
-            const cacheComplete = !!(cacheMatches && cache && cache.historyComplete === true && Array.isArray(cache.items) && cache.items.length);
+            const cachedExpected = Number(cache && (cache.targetCount ?? cache.availableCount));
+            const cachedCountComplete = !Number.isFinite(cachedExpected) || cachedExpected <= 0 || (Array.isArray(cache && cache.items) && cache.items.length >= cachedExpected);
+            const cacheComplete = !!(cacheMatches && cache && cache.historyComplete === true && Array.isArray(cache.items) && cache.items.length && cachedCountComplete);
             const cacheFresh = cacheComplete && remoteCacheAgeMs(cache) <= FB_MONITOR_REMOTE_HISTORY_CACHE_MAX_AGE_MS;
             const cachedBase = cacheMatches && cache && Array.isArray(cache.items) ? cache.items : [];
             const merged = pruneRemoteCloudItems(mergeRemoteCloudItems(cachedBase.length ? cachedBase : remoteItems, fastItems), meta.nextLimit, meta.nextDisplayHours, meta.nextHistoryHours);
