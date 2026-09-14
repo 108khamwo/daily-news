@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.98">
+    <meta name="cm108-dashboard-version" content="0.1.99">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.98';
+        const CURRENT_DASHBOARD_VERSION = '0.1.99';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v198';
         let checking = false;
@@ -205,7 +205,7 @@
         .fb-monitor-row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
         .fb-monitor-row-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .fb-monitor-row-source { font-size: 10px; line-height: 1.2; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .fb-monitor-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
+        .fb-monitor-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: block; max-height: 2.9em; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
         .fb-monitor-ticker-row:hover .fb-monitor-row-title { color: #1d4ed8; }
         .fb-monitor-ticker-row.is-read .fb-monitor-row-title { color: #64748b; font-weight: 550; }
         .fb-monitor-ticker-row.is-read:hover .fb-monitor-row-title { color: #475569; }
@@ -1045,27 +1045,9 @@ const cleanTickerHeadline = value => normalizeRemoteHeadlineText(value)
     .replace(/(?:ï¿½|\uFFFD)+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-const smartTickerHeadline = (value, maxChars = 88) => {
-    const s = cleanTickerHeadline(value);
-    if (!s || s.length <= maxChars) return s;
-    try {
-        if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-            const segs = Array.from(new Intl.Segmenter('th', {granularity:'word'}).segment(s));
-            let out = '';
-            for (const seg of segs) {
-                const next = out + seg.segment;
-                if (next.length > maxChars) break;
-                out = next;
-            }
-            out = out.trim().replace(/[\s,;:|\-–—]+$/u, '');
-            if (out && out.length >= Math.min(24, Math.floor(maxChars * .45))) return out + '…';
-        }
-    } catch (e) { }
-    const cut = s.slice(0, maxChars + 1);
-    const candidates = [cut.lastIndexOf(' '), cut.lastIndexOf('・'), cut.lastIndexOf('·'), cut.lastIndexOf('—'), cut.lastIndexOf('-')];
-    const p = Math.max(...candidates);
-    return ((p >= Math.floor(maxChars * .55) ? cut.slice(0,p) : s.slice(0,maxChars)).trim().replace(/[\s,;:|\-–—]+$/u,'')) + '…';
-};
+// Keep the full cleaned headline in the DOM. Visual limiting is handled by CSS only,
+// so Thai words are not sliced at an arbitrary character count and no ellipsis is added.
+const smartTickerHeadline = value => cleanTickerHeadline(value);
 const remoteHeadlineMeaningfulLength = value => normalizeRemoteHeadlineText(value).replace(/[^\p{L}\p{N}]+/gu, '').length;
 const isGenericFacebookMediaHeadline = value => {
     const s = normalizeRemoteHeadlineText(value).toLowerCase();
@@ -1667,7 +1649,7 @@ const FacebookLatestTicker = () => {
         .fb-pip-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
         .fb-pip-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .fb-pip-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 1.2; color: #64748b; }
-        .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
+        .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: block; max-height: 2.9em; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
         .fb-pip-row:hover .fb-pip-row-title { color: #1d4ed8; }
         .fb-pip-row.is-read .fb-pip-row-title { color: #64748b; font-weight: 550; }
         .fb-pip-row.is-read:hover .fb-pip-row-title { color: #475569; }
