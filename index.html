@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.90">
+    <meta name="cm108-dashboard-version" content="0.1.91">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.90';
+        const CURRENT_DASHBOARD_VERSION = '0.1.91';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v165';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v191';
         let checking = false;
         let reloading = false;
 
@@ -1395,12 +1395,25 @@ const FacebookLatestTicker = () => {
     // the Monitor's current LAN URL (top-level HTTP navigation is allowed).
     const tryIosNetworkFingerprintSwitch = async (hint = null, force = false) => {
         if (!FB_MONITOR_IS_IOS_GITHUB || iosNetworkFingerprintBusyRef.current) return false;
+
+        // v0.1.91: Google-only must be a hard lock on iOS too.  Older builds
+        // ran the network-fingerprint handoff independently from the selected
+        // connection mode, so Safari could jump to the Local dashboard even
+        // after Admin selected Google Remote only.
+        const rememberedMode = getFacebookMonitorConnectionMode();
+        if (rememberedMode === 'google' && !hint) return false;
+
         const now = Date.now();
         if (!force && now - iosNetworkFingerprintLastAtRef.current < 12000) return false;
         iosNetworkFingerprintBusyRef.current = true;
         iosNetworkFingerprintLastAtRef.current = now;
         try {
             const data = hint || await fetchFacebookMonitorRemoteNetworkHint();
+            const hintedRawMode = data && (data.connection_mode || data.monitor_connection_mode);
+            const effectiveMode = normalizeFacebookMonitorConnectionMode(hintedRawMode || rememberedMode);
+            if (hintedRawMode) saveFacebookMonitorConnectionMode(effectiveMode);
+            if (effectiveMode === 'google') return false;
+
             if (!await facebookMonitorIosMatchesNetworkHint(data)) return false;
             const lanBase = normalizeFacebookMonitorBase(data.monitor_lan_url);
             if (!lanBase) return false;
@@ -1600,7 +1613,12 @@ const FacebookLatestTicker = () => {
                 }
                 throw new Error(String(data && data.error || 'REMOTE_ERROR'));
             }
-            if (FB_MONITOR_IS_IOS_GITHUB && await tryIosNetworkFingerprintSwitch(data, true)) return;
+            // Save the server-selected mode before any iOS LAN handoff decision.
+            // This makes Google Remote only authoritative immediately, even if
+            // this Safari tab still has an older localStorage value.
+            const remoteMode = normalizeFacebookMonitorConnectionMode(data.connection_mode || data.monitor_connection_mode || getFacebookMonitorConnectionMode());
+            if (data.connection_mode || data.monitor_connection_mode) saveFacebookMonitorConnectionMode(remoteMode);
+            if (FB_MONITOR_IS_IOS_GITHUB && remoteMode !== 'google' && await tryIosNetworkFingerprintSwitch(data, true)) return;
             const items = (Array.isArray(data.items) ? data.items : []).map(x => ({
                 id: x.remote_key || x.external_id || x.permalink,
                 remote_key: x.remote_key,
@@ -1938,6 +1956,13 @@ const FacebookLatestTicker = () => {
                 const serverMode = normalizeFacebookMonitorConnectionMode(data.connection_mode || preferredMode);
                 saveFacebookMonitorConnectionMode(serverMode);
                 if (serverMode === 'google') {
+                    // If iOS was previously handed to the Local dashboard while
+                    // Auto/LAN was selected, return to the original HTTPS
+                    // dashboard as soon as Admin switches to Google Remote only.
+                    if (FB_MONITOR_IS_LOCAL_DASHBOARD && localReturnUrlRef.current) {
+                        window.location.replace(localReturnUrlRef.current);
+                        return;
+                    }
                     setFeedMode('remote');
                     setMonitorState(prev => ({...prev, loading:false, connected:false, running:false}));
                     return;
