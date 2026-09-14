@@ -9,9 +9,9 @@
     <meta name="cm108-dashboard-version" content="0.1.93">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.93';
+        const CURRENT_DASHBOARD_VERSION = '0.1.94';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v193';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v194';
         let checking = false;
         let reloading = false;
 
@@ -190,7 +190,7 @@
         .fb-monitor-row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
         .fb-monitor-row-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .fb-monitor-row-source { font-size: 10px; line-height: 1.2; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .fb-monitor-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .fb-monitor-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
         .fb-monitor-ticker-row:hover .fb-monitor-row-title { color: #1d4ed8; }
         .fb-monitor-ticker-row.is-read .fb-monitor-row-title { color: #64748b; font-weight: 550; }
         .fb-monitor-ticker-row.is-read:hover .fb-monitor-row-title { color: #475569; }
@@ -1019,7 +1019,38 @@ const fetchFacebookMonitorRemoteFeed = (token, limit = null) => {
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
 
-const normalizeRemoteHeadlineText = value => String(value || '').replace(/\s+/g, ' ').trim();
+const normalizeRemoteHeadlineText = value => String(value || '')
+    .replace(/(?:ï¿½|\uFFFD)+/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/(?:^|\s)(?:ดูเพิ่มเติม|see\s+more)(?=\s|$|[.!?…])/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+const cleanTickerHeadline = value => normalizeRemoteHeadlineText(value)
+    .replace(/(?:ดูเพิ่มเติม|see\s+more)/gi, ' ')
+    .replace(/(?:ï¿½|\uFFFD)+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+const smartTickerHeadline = (value, maxChars = 88) => {
+    const s = cleanTickerHeadline(value);
+    if (!s || s.length <= maxChars) return s;
+    try {
+        if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+            const segs = Array.from(new Intl.Segmenter('th', {granularity:'word'}).segment(s));
+            let out = '';
+            for (const seg of segs) {
+                const next = out + seg.segment;
+                if (next.length > maxChars) break;
+                out = next;
+            }
+            out = out.trim().replace(/[\s,;:|\-–—]+$/u, '');
+            if (out && out.length >= Math.min(24, Math.floor(maxChars * .45))) return out + '…';
+        }
+    } catch (e) { }
+    const cut = s.slice(0, maxChars + 1);
+    const candidates = [cut.lastIndexOf(' '), cut.lastIndexOf('・'), cut.lastIndexOf('·'), cut.lastIndexOf('—'), cut.lastIndexOf('-')];
+    const p = Math.max(...candidates);
+    return ((p >= Math.floor(maxChars * .55) ? cut.slice(0,p) : s.slice(0,maxChars)).trim().replace(/[\s,;:|\-–—]+$/u,'')) + '…';
+};
 const remoteHeadlineMeaningfulLength = value => normalizeRemoteHeadlineText(value).replace(/[^\p{L}\p{N}]+/gu, '').length;
 const isGenericFacebookMediaHeadline = value => {
     const s = normalizeRemoteHeadlineText(value).toLowerCase();
@@ -1621,7 +1652,7 @@ const FacebookLatestTicker = () => {
         .fb-pip-meta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 3px; }
         .fb-pip-time { font-size: 10px; line-height: 1.2; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .fb-pip-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 1.2; color: #64748b; }
-        .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .fb-pip-row-title { font-size: 13px; line-height: 1.45; font-weight: 650; color: #334155; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: normal; overflow-wrap: normal; line-break: auto; hyphens: none; }
         .fb-pip-row:hover .fb-pip-row-title { color: #1d4ed8; }
         .fb-pip-row.is-read .fb-pip-row-title { color: #64748b; font-weight: 550; }
         .fb-pip-row.is-read:hover .fb-pip-row-title { color: #475569; }
@@ -1797,7 +1828,7 @@ const FacebookLatestTicker = () => {
         setRemoteLoginBusy(true);
         setRemoteError('');
         try {
-            const result = await loginFacebookMonitorRemoteDirect(password, remoteRemember);
+            const result = await loginFacebookMonitorRemoteDirect(password, true);
             const clean = String(result && result.token || '').trim();
             if (!clean) throw new Error('Google ไม่ได้ส่ง Session กลับมา');
             remoteTokenRef.current = clean;
@@ -2293,7 +2324,7 @@ const FacebookLatestTicker = () => {
                     item.page_name && React.createElement('span', { className: 'fb-monitor-row-source' }, item.page_name),
                     isRead && React.createElement('span', { className: 'fb-monitor-read-badge' }, '✓ อ่านแล้ว')
                 ),
-                React.createElement('div', { className: 'fb-monitor-row-title' }, improveRemoteHeadline(item.headline, item.message, item.page_name))
+                React.createElement('div', { className: 'fb-monitor-row-title', title: cleanTickerHeadline(improveRemoteHeadline(item.headline, item.message, item.page_name)) }, smartTickerHeadline(improveRemoteHeadline(item.headline, item.message, item.page_name)))
             );
         }) : null;
         const remoteLatestTitle = `${remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${remoteDisplayHours} ชม.`;
@@ -2323,16 +2354,14 @@ const FacebookLatestTicker = () => {
                     ),
                     React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('span',{className:'fb-monitor-remote-badge'},'Google Remote'),React.createElement('strong',null,remoteStatus))
                 ),
-                remoteAuthState === 'login' ? React.createElement('form',{onSubmit:submitRemoteLogin,className:'p-4 text-center flex-1 flex flex-col items-stretch justify-center gap-3'},
-                    React.createElement('div',{className:'text-sm font-bold text-gray-700'},'เชื่อมต่อ Google Remote'),
-                    React.createElement('div',{className:'text-xs text-gray-400 leading-relaxed'},'กรอกรหัส Remote News ครั้งเดียว · ไม่ต้องออกจากหน้า Dashboard'),
-                    React.createElement('input',{type:'password',value:remotePassword,onChange:e=>setRemotePassword(e.target.value),autoComplete:'current-password',placeholder:'รหัสผ่าน Remote News',disabled:remoteLoginBusy,className:'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400'}),
-                    React.createElement('label',{className:'flex items-center justify-center gap-2 text-xs text-gray-500'},
-                        React.createElement('input',{type:'checkbox',checked:remoteRemember,onChange:e=>setRemoteRemember(e.target.checked),disabled:remoteLoginBusy}),
-                        React.createElement('span',null,'จำการเข้าสู่ระบบ')
+                remoteAuthState === 'login' ? React.createElement('form',{onSubmit:submitRemoteLogin,className:'p-4 flex-1 flex flex-col items-stretch justify-center gap-2'},
+                    React.createElement('div',{className:'flex items-center gap-2'},
+                        React.createElement('input',{type:'password',value:remotePassword,onChange:e=>setRemotePassword(e.target.value),autoComplete:'current-password',placeholder:'รหัสผ่าน',disabled:remoteLoginBusy,autoFocus:true,className:'min-w-0 flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-blue-400'}),
+                        React.createElement('button',{type:'submit',disabled:remoteLoginBusy||!remotePassword,className:'w-11 h-11 shrink-0 inline-flex items-center justify-center rounded-xl bg-blue-600 text-white disabled:opacity-50',title:remoteLoginBusy?'กำลังตรวจสอบ':'เข้าสู่ระบบ','aria-label':remoteLoginBusy?'กำลังตรวจสอบ':'เข้าสู่ระบบ'},
+                            React.createElement(Icon,{name:remoteLoginBusy?'refresh-cw':'arrow-right',size:18})
+                        )
                     ),
-                    remoteError && React.createElement('div',{className:'text-xs text-red-500 leading-relaxed'},remoteError),
-                    React.createElement('button',{type:'submit',disabled:remoteLoginBusy||!remotePassword,className:'px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-50'},remoteLoginBusy?'กำลังตรวจสอบ…':'เข้าสู่ระบบ')
+                    remoteError && React.createElement('div',{className:'text-xs text-red-500 leading-relaxed'},remoteError)
                 ) : remoteAuthState === 'loading' ? React.createElement('div',{className:'p-5 text-center text-xs text-gray-400 flex-1 flex items-center justify-center'},'กำลังโหลดข่าวจาก Google…')
                 : remoteAuthState === 'error' ? React.createElement('div',{className:'p-5 text-center flex-1 flex flex-col items-center justify-center gap-3'},
                     React.createElement('div',{className:'text-xs text-red-500',title:remoteError || ''},'เชื่อมต่อ Google Remote ไม่สำเร็จ'),
@@ -2440,7 +2469,7 @@ const FacebookLatestTicker = () => {
                 source && React.createElement('span', { className: sourceClass }, source),
                 isRead && React.createElement('span', { className: readBadgeClass, title: 'เปิดอ่านข่าวนี้แล้ว' }, '✓ อ่านแล้ว')
             ),
-            React.createElement('div', { className: titleClass }, item.headline || '(ไม่มีหัวข้อ)')
+            React.createElement('div', { className: titleClass, title: cleanTickerHeadline(item.headline || '(ไม่มีหัวข้อ)') }, smartTickerHeadline(item.headline || '(ไม่มีหัวข้อ)'))
         );
     }) : null;
 
