@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.104">
+    <meta name="cm108-dashboard-version" content="0.1.105">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.104';
+        const CURRENT_DASHBOARD_VERSION = '0.1.105';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -2584,6 +2584,8 @@ const FacebookLatestTicker = () => {
             if (remoteLastSeen) remoteStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
         } else {
             remoteStatusParts.push('Online G');
+            if (remoteActiveDeviceType === 'android') remoteStatusParts.push('Mobile Monitor');
+            else if (remoteActiveDeviceType === 'windows') remoteStatusParts.push('Windows Monitor');
             if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
             if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
             if (remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
