@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.109">
+    <meta name="cm108-dashboard-version" content="0.1.110">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.109';
+        const CURRENT_DASHBOARD_VERSION = '0.1.110';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -1530,6 +1530,12 @@ const FacebookLatestTicker = () => {
     const remoteFastSeqRef = useRef(0);
     const remoteWakeSyncRef = useRef(null);
     const remoteWakeBusyRef = useRef(false);
+    // v0.1.110: keep a client-side success clock and a foreground catch-up lock.
+    // Browsers are allowed to freeze background tabs, so the dashboard must
+    // aggressively catch up as soon as the tab becomes visible again.
+    const remoteLastClientSuccessAtRef = useRef(0);
+    const remoteForegroundCatchupBusyRef = useRef(false);
+    const remoteForegroundCatchupPendingRef = useRef(false);
     // v0.1.109: Cloud presence can briefly report Offline while a heartbeat is
     // delayed even though the scanner/news sync is still working. Require a
     // sustained offline signal before turning the sidebar red.
@@ -1682,31 +1688,46 @@ const FacebookLatestTicker = () => {
         return () => { active = false; clearInterval(timer); };
     }, [retryNonce]);
 
-    // v0.1.86: Dashboard authentication stays direct through Apps Script JSONP.
+    // v0.1.110: while Google Remote is visible, poll every 10 seconds instead of
+    // 30 seconds. If the tab has just returned from sleep and the previous client
+    // success is stale, use the one-off wake callback so an old suspended JSONP
+    // queue cannot delay the refresh. Background tabs may still be frozen by the
+    // browser; the foreground catch-up below handles that immediately on return.
     useEffect(() => {
         if (feedMode !== 'remote') return;
         let active = true;
-        const run = async (silent = false) => { if (active) await loadRemoteCloudFeed(silent); };
+        const run = async (silent = false) => {
+            if (!active) return;
+            const clientStale = !remoteLastClientSuccessAtRef.current || (Date.now() - remoteLastClientSuccessAtRef.current > 15000);
+            const wake = !!(silent && document.visibilityState === 'visible' && clientStale);
+            await loadRemoteCloudFeed(silent, wake);
+        };
         run(false);
-        const timer = setInterval(() => run(true), 30000);
+        const timer = setInterval(() => run(true), 10000);
         return () => { active = false; clearInterval(timer); };
     }, [feedMode, retryNonce]);
 
-    // v0.1.107: Safari/Chrome/Edge may pause timers and a JSONP timeout while
-    // the tab is backgrounded. Google Remote must bypass any suspended fast-feed
-    // queue and sync immediately when the page becomes active again.
+    // v0.1.110: Safari/Chrome/Edge are allowed to freeze background tabs. The
+    // reliable behaviour is therefore: wake on every foreground signal, then
+    // actively catch up until the Google presence snapshot itself is fresh.
     useEffect(() => {
         let lastKick = 0;
         const kick = () => {
             if (document.visibilityState === 'hidden') return;
             const now = Date.now();
-            if (now - lastKick < 800) return;
+            if (now - lastKick < 500) return;
             lastKick = now;
-            if (feedModeRef.current === 'remote' && remoteWakeSyncRef.current) {
-                remoteWakeSyncRef.current();
-                return;
-            }
-            setRetryNonce(v => v + 1);
+            const run = () => {
+                if (feedModeRef.current === 'remote' && remoteWakeSyncRef.current) {
+                    remoteWakeSyncRef.current();
+                    return;
+                }
+                setRetryNonce(v => v + 1);
+            };
+            // Let Chromium finish thawing networking, but do not wait for the
+            // next interval. rAF runs on the first visible paint after resume.
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+            else run();
         };
         const onVisibility = () => { if (document.visibilityState === 'visible') kick(); };
         window.addEventListener('online', kick);
@@ -1714,6 +1735,8 @@ const FacebookLatestTicker = () => {
         window.addEventListener('focus', kick);
         window.addEventListener('pageshow', kick);
         document.addEventListener('visibilitychange', onVisibility);
+        // Chromium Page Lifecycle may emit resume after a frozen tab is thawed.
+        document.addEventListener('resume', kick);
         const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (connection && connection.addEventListener) connection.addEventListener('change', kick);
         return () => {
@@ -1722,6 +1745,7 @@ const FacebookLatestTicker = () => {
             window.removeEventListener('focus', kick);
             window.removeEventListener('pageshow', kick);
             document.removeEventListener('visibilitychange', onVisibility);
+            document.removeEventListener('resume', kick);
             if (connection && connection.removeEventListener) connection.removeEventListener('change', kick);
         };
     }, []);
@@ -2082,15 +2106,16 @@ const FacebookLatestTicker = () => {
             // On wake, bypass the fixed callback queue that may still contain a
             // request suspended while the tab was in the background.
             const data = wake
-                ? await fetchFacebookMonitorRemoteFeedWake(token, 15, 18000)
+                ? await fetchFacebookMonitorRemoteFeedWake(token, 15, 9000)
                 : await fetchFacebookMonitorRemoteFeed(token, 15, 0, true, 35000, 2);
             if (fastSeq !== remoteFastSeqRef.current) return;
             if (!data || data.ok === false || data.authenticated === false) {
                 if (isExplicitFacebookMonitorRemoteAuthFailure(data)) {
-                    clearFacebookMonitorRemoteToken(); remoteTokenRef.current = ''; setRemoteAuthState('login'); setRemoteItems([]); setRemoteError(''); return;
+                    clearFacebookMonitorRemoteToken(); remoteTokenRef.current = ''; setRemoteAuthState('login'); setRemoteItems([]); setRemoteError(''); return null;
                 }
                 throw new Error(String(data && (data.error || data.message) || 'REMOTE_ERROR'));
             }
+            remoteLastClientSuccessAtRef.current = Date.now();
             const remoteMode = normalizeFacebookMonitorConnectionMode(data.connection_mode || data.monitor_connection_mode || getFacebookMonitorConnectionMode());
             if (data.connection_mode || data.monitor_connection_mode) saveFacebookMonitorConnectionMode(remoteMode);
             if (FB_MONITOR_IS_IOS_GITHUB && remoteMode !== 'google' && await tryIosNetworkFingerprintSwitch(data, true)) return;
@@ -2152,6 +2177,7 @@ const FacebookLatestTicker = () => {
                     }).catch(() => {});
                 }
             }
+            return data;
         } catch (e) {
             console.warn('Google Remote feed error', e);
             const code = String(e && e.message || e || '');
@@ -2162,11 +2188,49 @@ const FacebookLatestTicker = () => {
                 setRemoteUsingCache(true);
                 setRemoteAuthState('ready');
             } else setRemoteAuthState('error');
+            return null;
         } finally {
             if (wake && fastSeq === remoteFastSeqRef.current) remoteWakeBusyRef.current = false;
         }
     };
-    remoteWakeSyncRef.current = () => loadRemoteCloudFeed(true, true);
+
+    const isRemoteCloudSnapshotFresh = data => {
+        if (!data) return false;
+        const raw = data.active_last_seen_at || data.monitor_last_seen_at || data.monitor_last_run_at || data.updated_at || '';
+        const t = Date.parse(String(raw || ''));
+        if (!Number.isFinite(t)) return true; // old GAS without presence timestamp: one successful wake is enough
+        const age = Date.now() - t;
+        return age >= -60000 && age <= 90000;
+    };
+
+    // v0.1.110 foreground catch-up: one background wake is sometimes not enough
+    // immediately after Chromium thaws a sleeping tab. Retry the one-off JSONP
+    // wake request while the cloud presence snapshot is still stale, instead of
+    // waiting for the next 30-second timer. Requests are sequential to avoid
+    // duplicate Spreadsheet reads and old responses cannot overwrite newer ones.
+    remoteWakeSyncRef.current = async () => {
+        if (feedModeRef.current !== 'remote' || document.visibilityState === 'hidden') return;
+        if (remoteForegroundCatchupBusyRef.current) {
+            remoteForegroundCatchupPendingRef.current = true;
+            return;
+        }
+        remoteForegroundCatchupBusyRef.current = true;
+        remoteForegroundCatchupPendingRef.current = false;
+        try {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+                if (feedModeRef.current !== 'remote' || document.visibilityState === 'hidden') break;
+                const data = await loadRemoteCloudFeed(true, true);
+                if (isRemoteCloudSnapshotFresh(data)) break;
+                if (attempt < 2) await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 500 : 1200));
+            }
+        } finally {
+            remoteForegroundCatchupBusyRef.current = false;
+            if (remoteForegroundCatchupPendingRef.current && feedModeRef.current === 'remote' && document.visibilityState !== 'hidden') {
+                remoteForegroundCatchupPendingRef.current = false;
+                setTimeout(() => { if (remoteWakeSyncRef.current) remoteWakeSyncRef.current(); }, 0);
+            }
+        }
+    };
 
     const submitRemoteLogin = async (event) => {
         if (event && event.preventDefault) event.preventDefault();
