@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.108">
+    <meta name="cm108-dashboard-version" content="0.1.109">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.108';
+        const CURRENT_DASHBOARD_VERSION = '0.1.109';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -1530,6 +1530,10 @@ const FacebookLatestTicker = () => {
     const remoteFastSeqRef = useRef(0);
     const remoteWakeSyncRef = useRef(null);
     const remoteWakeBusyRef = useRef(false);
+    // v0.1.109: Cloud presence can briefly report Offline while a heartbeat is
+    // delayed even though the scanner/news sync is still working. Require a
+    // sustained offline signal before turning the sidebar red.
+    const remoteOfflineSinceRef = useRef(0);
     const feedModeRef = useRef(feedMode);
     feedModeRef.current = feedMode;
     const iosNetworkFingerprintBusyRef = useRef(false);
@@ -1903,6 +1907,19 @@ const FacebookLatestTicker = () => {
             runCompletedPages: Number(data.run_completed_pages || 0),
             nextRunAt: data.next_run_at || null
         };
+
+        // v0.1.109: do not flip Online/Offline from a single stale Cloud
+        // heartbeat sample. A scan may still be pushing fresh news while one
+        // presence heartbeat is late. Running/fresh Online clears the pending
+        // offline timer immediately; otherwise Offline must remain continuous
+        // for a short confirmation window before the red state is shown.
+        const presenceState = String(nextPresence.activeState || '').toLowerCase();
+        const presenceRunning = ['running','scanning','updating','working'].includes(presenceState);
+        const presencePositive = nextPresence.systemOnline === true || nextPresence.online === true || presenceRunning;
+        const presenceNegative = nextPresence.systemOnline === false || ['offline','stopped','disabled','off'].includes(presenceState);
+        if (presencePositive) remoteOfflineSinceRef.current = 0;
+        else if (presenceNegative && !remoteOfflineSinceRef.current) remoteOfflineSinceRef.current = Date.now();
+
         setRemoteDisplayLimit(nextLimit);
         setRemoteDisplayHours(nextDisplayHours);
         setRemoteHistoryHours(nextHistoryHours);
@@ -2659,7 +2676,7 @@ const FacebookLatestTicker = () => {
             );
         }) : null;
         const remoteLatestTitle = `${remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${remoteDisplayHours} ชม.`;
-        // v0.1.108: for sidebar freshness prefer the active device heartbeat.
+        // v0.1.109: keep sidebar status stable while preserving active-device freshness.
         // A completed-cycle timestamp can legitimately be older while a new scan is
         // already finding posts, which previously produced impossible-looking status
         // such as "ล่าสุด 10:02 / ถัดไป 10:12" while the feed already had 10:17.
@@ -2678,8 +2695,17 @@ const FacebookLatestTicker = () => {
             ? Math.max(0, (Date.now() - remoteActiveLastSeenMs) / 1000)
             : Number(remotePresence.activeHeartbeatAgeSeconds);
         const remoteHeartbeatStale = Number.isFinite(remoteComputedHeartbeatAge) && remoteComputedHeartbeatAge > remoteHeartbeatTtlSeconds;
-        const remoteStopped = remoteSystemOnline === false || remoteStateStopped || remoteHeartbeatStale || (remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android');
         const remoteRunning = ['running','scanning','updating','working'].includes(remoteActiveState);
+        const remoteExplicitDisabled = remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android';
+        const remotePresenceLooksOffline = remoteSystemOnline === false || remoteStateStopped || remoteHeartbeatStale;
+        // Require roughly three normal Google Remote polls of continuous Offline
+        // before turning red. This removes the false Offline flicker caused by a
+        // late heartbeat, while an explicit Stop still becomes Offline at once.
+        const remoteOfflineConfirmMs = 90 * 1000;
+        const remoteOfflineConfirmed = remotePresenceLooksOffline
+            && remoteOfflineSinceRef.current > 0
+            && (Date.now() - remoteOfflineSinceRef.current) >= remoteOfflineConfirmMs;
+        const remoteStopped = remoteExplicitDisabled || (!remoteRunning && remoteOfflineConfirmed);
         const remoteNextRunMs = Date.parse(String(remotePresence.nextRunAt || ''));
         const remoteNextRunFuture = Number.isFinite(remoteNextRunMs) && remoteNextRunMs > Date.now() + 5000;
         const remoteStatusLabel = remoteStopped ? 'Offline G' : 'Online G';
