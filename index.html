@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.110">
+    <meta name="cm108-dashboard-version" content="0.1.111">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.110';
+        const CURRENT_DASHBOARD_VERSION = '0.1.111';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -4185,5 +4185,6 @@ const AdminPanel = ({ onCancel, editingItem, db, appId }) => {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(React.createElement(App, null));
 </script>
+    <script src="./cm108-earthquake-alert-production.js?v=1.1.0"></script>
 </body>
 </html>
