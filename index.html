@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.107">
+    <meta name="cm108-dashboard-version" content="0.1.108">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.107';
+        const CURRENT_DASHBOARD_VERSION = '0.1.108';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -168,6 +168,10 @@
         .fb-monitor-sidebar-title-text { font-size: 14px; line-height: 1.25; font-weight: 800; color: #172033; flex: 1; min-width: 0; }
         .fb-monitor-sidebar-status { margin-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; line-height: 1.35; color: #94a3b8; }
         .fb-monitor-sidebar-status strong { color: #64748b; font-weight: 700; }
+        .fb-monitor-status-state { font-weight: 800; }
+        .fb-monitor-status-state.online { color: #16a34a; }
+        .fb-monitor-status-state.offline { color: #dc2626; }
+        .fb-monitor-status-detail { color: #64748b; font-weight: 700; }
         .fb-monitor-collapse-btn { width: 30px; height: 30px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: 0 0 auto; }
         .fb-monitor-collapse-btn:hover { background: #f8fafc; color: #2563eb; }
         .fb-monitor-head-actions { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
@@ -255,7 +259,7 @@
         .fb-monitor-dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: 0 0 8px; }
         .fb-monitor-dot.online { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.12); }
         .fb-monitor-dot.running { background: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
-        .fb-monitor-dot.offline { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148,163,184,.12); }
+        .fb-monitor-dot.offline { background: #ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,.12); }
         .fb-monitor-collapsed-tab { display: none; }
         .fb-monitor-sidebar.is-collapsed { width: 176px; height: 44px; top: auto; bottom: 14px; border-radius: 14px 0 0 14px; overflow: hidden; box-shadow: -6px 6px 20px rgba(15, 23, 42, .12); }
         .fb-monitor-sidebar.is-collapsed .fb-monitor-expanded { display: none; }
@@ -2655,7 +2659,11 @@ const FacebookLatestTicker = () => {
             );
         }) : null;
         const remoteLatestTitle = `${remoteDisplayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${remoteDisplayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${remoteDisplayHours} ชม.`;
-        const remoteLastSeen = remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
+        // v0.1.108: for sidebar freshness prefer the active device heartbeat.
+        // A completed-cycle timestamp can legitimately be older while a new scan is
+        // already finding posts, which previously produced impossible-looking status
+        // such as "ล่าสุด 10:02 / ถัดไป 10:12" while the feed already had 10:17.
+        const remoteLastSeen = remotePresence.activeLastSeenAt || remotePresence.lastRunAt || remotePresence.lastSeenAt || remoteUpdatedAt;
         const remoteSystemOnline = remotePresence.systemOnline !== null && remotePresence.systemOnline !== undefined ? remotePresence.systemOnline : remotePresence.online;
         const remoteActiveState = String(remotePresence.activeState || '').toLowerCase();
         const remoteActiveDeviceType = String(remotePresence.activeDeviceType || '').toLowerCase();
@@ -2671,34 +2679,39 @@ const FacebookLatestTicker = () => {
             : Number(remotePresence.activeHeartbeatAgeSeconds);
         const remoteHeartbeatStale = Number.isFinite(remoteComputedHeartbeatAge) && remoteComputedHeartbeatAge > remoteHeartbeatTtlSeconds;
         const remoteStopped = remoteSystemOnline === false || remoteStateStopped || remoteHeartbeatStale || (remotePresence.updateEnabled === false && remoteActiveDeviceType !== 'android');
-        const remoteCycleNumber = Number(remotePresence.currentCycleNumber || remotePresence.cycleCount || 0);
-        const remoteStatusParts = [];
+        const remoteRunning = ['running','scanning','updating','working'].includes(remoteActiveState);
+        const remoteNextRunMs = Date.parse(String(remotePresence.nextRunAt || ''));
+        const remoteNextRunFuture = Number.isFinite(remoteNextRunMs) && remoteNextRunMs > Date.now() + 5000;
+        const remoteStatusLabel = remoteStopped ? 'Offline G' : 'Online G';
+        const remoteStatusDetails = [];
         if (remoteStopped) {
-            remoteStatusParts.push('OffLine G');
-            if (remoteLastSeen) remoteStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
+            if (remoteLastSeen) remoteStatusDetails.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
         } else {
-            remoteStatusParts.push('Online G');
-            if (remoteActiveDeviceType === 'android') remoteStatusParts.push('Mobile Monitor');
-            else if (remoteActiveDeviceType === 'windows') remoteStatusParts.push('Windows Monitor');
-            if (remoteCycleNumber > 0) remoteStatusParts.push(`รอบที่ ${remoteCycleNumber}`);
-            if (remoteLastSeen) remoteStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
-            if (remotePresence.nextRunAt) remoteStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
+            if (remoteActiveDeviceType === 'android') remoteStatusDetails.push('Mobile Monitor');
+            else if (remoteActiveDeviceType === 'windows') remoteStatusDetails.push('Windows Monitor');
+            if (remoteRunning) remoteStatusDetails.push('กำลังอัปเดต');
+            if (remoteLastSeen) remoteStatusDetails.push(`ล่าสุด ${formatFacebookMonitorTime(remoteLastSeen)} น.`);
+            // Never show a next-run clock that is already in the past.
+            if (!remoteRunning && remoteNextRunFuture) remoteStatusDetails.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(remotePresence.nextRunAt)} น.`);
         }
-        const remoteStatus = remoteStatusParts.join(' · ');
+        const remoteStatusDetail = remoteStatusDetails.join(' · ');
         return React.createElement('aside', { className: `fb-monitor-sidebar ${collapsed ? 'is-collapsed' : ''}` },
             React.createElement('button', { type:'button', className:'fb-monitor-collapsed-tab', onClick:toggleCollapsed, title:'ขยายข่าวล่าสุดผ่าน Cloud' },
                 React.createElement(Icon,{name:'chevron-left',size:16}), React.createElement('span',null,'ข่าวล่าสุด · Cloud'), React.createElement('span',{className:'fb-monitor-mobile-label'},'Cloud')),
             React.createElement('div',{className:'fb-monitor-expanded flex flex-col min-h-0 h-full'},
                 React.createElement('div',{className:'fb-monitor-sidebar-head'},
                     React.createElement('div',{className:'fb-monitor-sidebar-headline'},
-                        React.createElement('span',{className:`fb-monitor-dot ${remoteStopped ? 'offline' : (remotePresence.activeState === 'running' ? 'running' : 'online')}`}),
+                        React.createElement('span',{className:`fb-monitor-dot ${remoteStopped ? 'offline' : 'online'}`}),
                         React.createElement('div',{className:'fb-monitor-sidebar-title-text'},remoteLatestTitle),
                         React.createElement('div',{className:'fb-monitor-head-actions'},
                             React.createElement('button',{type:'button',className:'fb-monitor-float-btn',onClick:()=>window.open(getFacebookMonitorRemoteUrl(),'_blank'),title:'เปิด Remote News เต็มหน้า'},React.createElement(Icon,{name:'external-link',size:16})),
                             React.createElement('button',{type:'button',className:'fb-monitor-collapse-btn',onClick:toggleCollapsed,title:'หุบแถบข่าวล่าสุด'},React.createElement(Icon,{name:'chevron-right',size:16}))
                         )
                     ),
-                    React.createElement('div',{className:'fb-monitor-sidebar-status'},React.createElement('strong',null,remoteStatus))
+                    React.createElement('div',{className:'fb-monitor-sidebar-status'},
+                        React.createElement('span',{className:`fb-monitor-status-state ${remoteStopped ? 'offline' : 'online'}`},remoteStatusLabel),
+                        remoteStatusDetail && React.createElement('span',{className:'fb-monitor-status-detail'},remoteStatusDetail)
+                    )
                 ),
                 remoteAuthState === 'login' ? React.createElement('form',{onSubmit:submitRemoteLogin,className:'p-4 flex-1 flex flex-col items-stretch justify-center gap-2'},
                     React.createElement('div',{className:'flex items-center gap-2'},
@@ -2795,20 +2808,20 @@ const FacebookLatestTicker = () => {
     const displayLimit = normalizeDisplayLimit(monitorState.displayLimit);
     const latestCountLabel = displayLimit === 0 ? `ข่าวล่าสุด · ${monitorState.displayHours} ชม.` : `${displayLimit} ข่าวล่าสุด · ${monitorState.displayHours} ชม.`;
     const latestTitle = `${displayLimit === 0 ? 'ข่าวล่าสุดทั้งหมดเพจเชียงใหม่' : `${displayLimit} ข่าวล่าสุดเพจเชียงใหม่`} · ${monitorState.displayHours} ชม.`;
-    const localCycleNumber = Number(monitorState.currentCycleNumber || monitorState.cycleCount || 0);
     const localStopped = monitorState.schedulerEnabled === false;
-    const localStatusParts = [];
+    const localNextRunMs = Date.parse(String(monitorState.nextRunAt || ''));
+    const localNextRunFuture = Number.isFinite(localNextRunMs) && localNextRunMs > Date.now() + 5000;
+    const localStatusLabel = localStopped ? 'Offline L' : 'Online L';
+    const localStatusDetails = [];
     if (localStopped) {
-        localStatusParts.push('OffLine L');
-        if (monitorState.updatedAt) localStatusParts.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
+        if (monitorState.updatedAt) localStatusDetails.push(`อัปเดตล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
     } else {
-        localStatusParts.push('Online L');
-        if (localCycleNumber > 0) localStatusParts.push(`รอบที่ ${localCycleNumber}`);
-        if (monitorState.updatedAt) localStatusParts.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
-        if (monitorState.nextRunAt) localStatusParts.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
+        if (monitorState.running) localStatusDetails.push('กำลังอัปเดต');
+        if (monitorState.updatedAt) localStatusDetails.push(`ล่าสุด ${formatFacebookMonitorTime(monitorState.updatedAt)} น.`);
+        if (!monitorState.running && localNextRunFuture) localStatusDetails.push(`อัปเดตถัดไป ${formatFacebookMonitorTime(monitorState.nextRunAt)} น.`);
     }
-    const statusCopy = localStatusParts.join(' · ');
-    const dotClass = localStopped ? 'offline' : (monitorState.running ? 'running' : 'online');
+    const statusCopy = [localStatusLabel].concat(localStatusDetails).join(' · ');
+    const dotClass = localStopped ? 'offline' : 'online';
 
     const renderNewsRows = (rowClass, metaClass, timeClass, sourceClass, titleClass) => playItems.length ? playItems.map(item => {
         const itemKey = getItemKey(item);
@@ -2866,8 +2879,8 @@ const FacebookLatestTicker = () => {
                     )
                 ),
                 React.createElement('div', { className: 'fb-monitor-sidebar-status' },
-                    React.createElement('span', null, 'Local'),
-                    React.createElement('strong', null, statusCopy)
+                    React.createElement('span', { className: `fb-monitor-status-state ${localStopped ? 'offline' : 'online'}` }, localStatusLabel),
+                    localStatusDetails.length > 0 && React.createElement('span', { className: 'fb-monitor-status-detail' }, localStatusDetails.join(' · '))
                 )
             ),
             React.createElement('div', { className: 'fb-monitor-sidebar-list-wrap' },
