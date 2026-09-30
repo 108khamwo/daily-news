@@ -6,12 +6,12 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.106">
+    <meta name="cm108-dashboard-version" content="0.1.107">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.106';
+        const CURRENT_DASHBOARD_VERSION = '0.1.107';
         const CHECK_EVERY_MS = 60000;
-        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1106';
+        const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
         let reloading = false;
 
@@ -389,8 +389,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'daily-news-app';
 const THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-// iOS/Safari รุ่นใหม่จัด Canvas textAlign=center ได้ตรงแล้ว ไม่ต้องชดเชย -145px แบบเดิม
-const IOS_DATE_X_DEFAULT_OFFSET = 0;
+const IOS_DATE_X_DEFAULT_OFFSET = -145;
 const DATE_X_STEP = 1;
 const isIOSMobile = () => {
     if (typeof navigator === 'undefined')
@@ -1054,6 +1053,16 @@ const fetchFacebookMonitorRemoteFeed = (token, pageSize = null, offset = 0, fast
     if (fast) params.fast = '1';
     return fetchFacebookMonitorRemoteJsonpNamed(fast ? 'cm108RemoteFeedFastV104' : 'cm108RemoteFeedFullV104', params, timeoutMs, maxAttempts);
 };
+let FB_MONITOR_REMOTE_WAKE_SEQ = 0;
+const fetchFacebookMonitorRemoteFeedWake = (token, pageSize = 15, timeoutMs = 18000) => {
+    if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
+    // v0.1.107: a backgrounded browser can leave the fixed fast-feed JSONP
+    // callback queued behind a suspended request. Use a one-off callback when
+    // the page wakes so the newest news is not forced to wait for that queue.
+    const params = { api:'feed', token:String(token), compact:'1', page_size:String(pageSize), fast:'1' };
+    const callback = `cm108RemoteFeedWakeV107_${Date.now()}_${++FB_MONITOR_REMOTE_WAKE_SEQ}`;
+    return fetchFacebookMonitorRemoteJsonpOnce(callback, params, timeoutMs);
+};
 const fetchFacebookMonitorRemoteCount = token => {
     if (!token) return Promise.reject(new Error('REMOTE_LOGIN_REQUIRED'));
     return fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteFeedCountV104', {api:'feed_count',token:String(token)}, 25000, 2);
@@ -1061,9 +1070,28 @@ const fetchFacebookMonitorRemoteCount = token => {
 const fetchFacebookMonitorRemoteNetworkHint = () =>
     fetchFacebookMonitorRemoteJsonpNamed('cm108RemoteNetworkHintV186', { api:'network_hint' }, 45000);
 
-const normalizeRemoteHeadlineText = value => String(value || '')
-    .replace(/(?:ï¿½|\uFFFD)+/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+const remoteInteractionTailLooksLikeUi = value => {
+    const t = String(value || '').replace(/\s+/g, ' ').trim().replace(/^[ ·•.\-…]+|[ ·•.\-…]+$/g, '');
+    if (!t) return true;
+    if (/^\+?\d[\d,.]*(?:\s*(?:พัน|หมื่น|ล้าน|k|m))?$/i.test(t)) return true;
+    return /(?:ความคิดเห็น|comments?|ตอบกลับ|repl(?:y|ies)|ถูกใจ|like|แชร์|share|ดูการตอบกลับ|view\s+replies|ดูความคิดเห็น|view\s+comments)/i.test(t);
+};
+const stripRemoteInteractionTail = value => {
+    let v = String(value || '').replace(/(?:ï¿½|\uFFFD)+/g, '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00a0/g, ' ').trim();
+    const see = /(?:[.…]+\s*)?(?:ดูเพิ่มเติม|see\s+more)/ig;
+    let m;
+    while ((m = see.exec(v))) {
+        if (m.index >= 6 && remoteInteractionTailLooksLikeUi(v.slice(m.index + m[0].length))) return v.slice(0, m.index).replace(/[ ·•.\-…]+$/g, '').trim();
+    }
+    for (const rx of [
+        /\s+(?:\+?\d[\d,.]*(?:\s*(?:พัน|หมื่น|ล้าน|k|m))?\s*)?(?:\d[\d,.]*\s*)?(?:ความคิดเห็น(?:เพิ่มเติม)?|comments?)(?:\s|$)/i,
+        /\s+(?:ดูการตอบกลับ|view\s+repl(?:y|ies)|ดูความคิดเห็น|view\s+comments)(?:\s|$)/i
+    ]) {
+        const x = v.match(rx); if (x && x.index >= 8) return v.slice(0, x.index).replace(/[ ·•.\-…]+$/g, '').trim();
+    }
+    return v;
+};
+const normalizeRemoteHeadlineText = value => stripRemoteInteractionTail(value)
     .replace(/(?:^|\s)(?:ดูเพิ่มเติม|see\s+more)(?=\s|$|[.!?…])/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1495,6 +1523,11 @@ const FacebookLatestTicker = () => {
     const remoteTokenRef = useRef(loadFacebookMonitorRemoteToken());
     const remoteBackgroundSeqRef = useRef(0);
     const remoteBackgroundBusyRef = useRef(false);
+    const remoteFastSeqRef = useRef(0);
+    const remoteWakeSyncRef = useRef(null);
+    const remoteWakeBusyRef = useRef(false);
+    const feedModeRef = useRef(feedMode);
+    feedModeRef.current = feedMode;
     const iosNetworkFingerprintBusyRef = useRef(false);
     const iosNetworkFingerprintLastAtRef = useRef(0);
     const monitorBase = monitorBaseRef.current;
@@ -1558,6 +1591,42 @@ const FacebookLatestTicker = () => {
         });
     };
 
+    // v0.1.107: keep the same news row under the user's eyes when Cloud inserts
+    // new rows above it or appends older history below it. scrollHeight-delta is
+    // not enough here because Remote history can grow at either end of the list.
+    const captureRemoteScrollAnchor = () => {
+        const viewport = tickerViewportRef.current;
+        if (!viewport || viewport.scrollTop <= 5) return null;
+        const viewportTop = viewport.getBoundingClientRect().top;
+        const rows = Array.from(viewport.querySelectorAll('[data-fb-news-key]'));
+        const row = rows.find(el => el.getBoundingClientRect().bottom > viewportTop + 1);
+        if (!row) return { key:'', offset:0, scrollTop:viewport.scrollTop };
+        return {
+            key:String(row.getAttribute('data-fb-news-key') || ''),
+            offset:row.getBoundingClientRect().top - viewportTop,
+            scrollTop:viewport.scrollTop
+        };
+    };
+    const restoreRemoteScrollAnchor = anchor => {
+        if (!anchor) return;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const viewport = tickerViewportRef.current;
+            if (!viewport) return;
+            if (!anchor.key) { viewport.scrollTop = anchor.scrollTop; return; }
+            const viewportTop = viewport.getBoundingClientRect().top;
+            const rows = Array.from(viewport.querySelectorAll('[data-fb-news-key]'));
+            const row = rows.find(el => String(el.getAttribute('data-fb-news-key') || '') === anchor.key);
+            if (!row) { viewport.scrollTop = anchor.scrollTop; return; }
+            const newOffset = row.getBoundingClientRect().top - viewportTop;
+            viewport.scrollTop += (newOffset - anchor.offset);
+        }));
+    };
+    const setRemoteItemsStable = nextItems => {
+        const anchor = captureRemoteScrollAnchor();
+        setRemoteItems(nextItems);
+        restoreRemoteScrollAnchor(anchor);
+    };
+
     // v0.1.86: iOS Safari blocks background HTTPS -> HTTP LAN probes.
     // Compare an HTTPS network fingerprint instead; when the iPhone and Monitor
     // share the same IPv4 WAN or IPv6 /64 prefix, use a top-level navigation to
@@ -1615,9 +1684,9 @@ const FacebookLatestTicker = () => {
         return () => { active = false; clearInterval(timer); };
     }, [feedMode, retryNonce]);
 
-    // v0.1.86: Safari/Chrome mobile may pause interval timers while the browser
-    // changes Wi-Fi/5G or the tab is backgrounded. Kick an immediate LAN/Cloud
-    // re-check whenever the page becomes active or the network reports a change.
+    // v0.1.107: Safari/Chrome/Edge may pause timers and a JSONP timeout while
+    // the tab is backgrounded. Google Remote must bypass any suspended fast-feed
+    // queue and sync immediately when the page becomes active again.
     useEffect(() => {
         let lastKick = 0;
         const kick = () => {
@@ -1625,6 +1694,10 @@ const FacebookLatestTicker = () => {
             const now = Date.now();
             if (now - lastKick < 800) return;
             lastKick = now;
+            if (feedModeRef.current === 'remote' && remoteWakeSyncRef.current) {
+                remoteWakeSyncRef.current();
+                return;
+            }
             setRetryNonce(v => v + 1);
         };
         const onVisibility = () => { if (document.visibilityState === 'visible') kick(); };
@@ -1898,7 +1971,7 @@ const FacebookLatestTicker = () => {
                 if (Number.isFinite(serverTotal) && serverTotal >= 0) expectedTotal = serverTotal;
                 const shownTotal = Number.isFinite(expectedTotal) ? expectedTotal : exactItems.length;
                 setRemoteProgressTotal(shownTotal);
-                setRemoteItems(exactItems);
+                setRemoteItemsStable(exactItems);
                 setRemoteProgressLoaded(exactItems.length);
                 setRemoteUsingCache(false);
                 setRemoteAuthState('ready');
@@ -1943,7 +2016,7 @@ const FacebookLatestTicker = () => {
             // Keep any successfully loaded pages. Partial history is useful, but
             // it is intentionally not treated as a complete/fresh cache.
             if (exactItems.length) {
-                setRemoteItems(exactItems);
+                setRemoteItemsStable(exactItems);
                 setRemoteProgressLoaded(exactItems.length);
                 const cachedAt = new Date().toISOString();
                 saveFacebookMonitorRemoteCache({
@@ -1964,17 +2037,33 @@ const FacebookLatestTicker = () => {
         }
     };
 
-    const loadRemoteCloudFeed = async (silent = false) => {
+    const loadRemoteCloudFeed = async (silent = false, wake = false) => {
         const token = remoteTokenRef.current || loadFacebookMonitorRemoteToken();
         if (!token) { setRemoteAuthState('login'); setRemoteItems([]); return; }
-        if (silent && remoteBackgroundBusyRef.current) return;
+        // A resumed interval can fire at the same moment as the wake request.
+        // Never let that queued normal poll supersede the wake request.
+        if (!wake && silent && remoteWakeBusyRef.current) return;
+        if (wake) {
+            remoteWakeBusyRef.current = true;
+            // Cancel any stale full-history pass that began before the tab slept;
+            // otherwise it could overwrite the just-refreshed latest 15 rows.
+            remoteBackgroundSeqRef.current += 1;
+            remoteBackgroundBusyRef.current = false;
+            setRemoteProgressLoading(false);
+        }
         const cachedBefore = loadFacebookMonitorRemoteCache();
         if (!silent) setRemoteAuthState(prev => (remoteItems.length || (cachedBefore && cachedBefore.items && cachedBefore.items.length)) ? 'ready' : 'loading');
         const seq = silent ? remoteBackgroundSeqRef.current : ++remoteBackgroundSeqRef.current;
+        const fastSeq = ++remoteFastSeqRef.current;
         try {
             // Always refresh only the newest 15 first. Existing complete history is
             // reused from localStorage and is NOT downloaded again on every open.
-            const data = await fetchFacebookMonitorRemoteFeed(token, 15, 0, true, 35000, 2);
+            // On wake, bypass the fixed callback queue that may still contain a
+            // request suspended while the tab was in the background.
+            const data = wake
+                ? await fetchFacebookMonitorRemoteFeedWake(token, 15, 18000)
+                : await fetchFacebookMonitorRemoteFeed(token, 15, 0, true, 35000, 2);
+            if (fastSeq !== remoteFastSeqRef.current) return;
             if (!data || data.ok === false || data.authenticated === false) {
                 if (isExplicitFacebookMonitorRemoteAuthFailure(data)) {
                     clearFacebookMonitorRemoteToken(); remoteTokenRef.current = ''; setRemoteAuthState('login'); setRemoteItems([]); setRemoteError(''); return;
@@ -1996,7 +2085,7 @@ const FacebookLatestTicker = () => {
             const cachedBase = cacheMatches && cache && Array.isArray(cache.items) ? cache.items : [];
             const merged = pruneRemoteCloudItems(mergeRemoteCloudItems(cachedBase.length ? cachedBase : remoteItems, fastItems), meta.nextLimit, meta.nextDisplayHours, meta.nextHistoryHours);
 
-            setRemoteItems(merged.length ? merged : fastItems);
+            setRemoteItemsStable(merged.length ? merged : fastItems);
             setRemoteProgressLoaded((merged.length ? merged : fastItems).length);
             const cachedTotal = Number(cache && (cache.targetCount ?? cache.availableCount ?? cache.retainedCount));
             if (Number.isFinite(cachedTotal) && cachedTotal > 0) setRemoteProgressTotal(cachedTotal);
@@ -2048,12 +2137,15 @@ const FacebookLatestTicker = () => {
             setRemoteError(code);
             const cached = loadFacebookMonitorRemoteCache();
             if (remoteItems.length || (cached && cached.items && cached.items.length)) {
-                if (!remoteItems.length && cached && cached.items) setRemoteItems(cached.items);
+                if (!remoteItems.length && cached && cached.items) setRemoteItemsStable(cached.items);
                 setRemoteUsingCache(true);
                 setRemoteAuthState('ready');
             } else setRemoteAuthState('error');
+        } finally {
+            if (wake && fastSeq === remoteFastSeqRef.current) remoteWakeBusyRef.current = false;
         }
     };
+    remoteWakeSyncRef.current = () => loadRemoteCloudFeed(true, true);
 
     const submitRemoteLogin = async (event) => {
         if (event && event.preventDefault) event.preventDefault();
@@ -2547,6 +2639,7 @@ const FacebookLatestTicker = () => {
             const isRead = readItemKeys.has(itemKey);
             return React.createElement('a', {
                 key: itemKey,
+                'data-fb-news-key': itemKey,
                 href: item.url || item.permalink || '#',
                 target: '_blank', rel: 'noopener',
                 onClick: () => markItemRead(itemKey),
@@ -3223,7 +3316,7 @@ const StandaloneEditor = () => {
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev - DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         React.createElement(Icon, { name: "arrow-left", size: 16 }),
                                         " \u0E0B\u0E49\u0E32\u0E22"),
-                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS 0"),
+                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS -145"),
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev + DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         "\u0E02\u0E27\u0E32 ",
                                         React.createElement(Icon, { name: "arrow-right", size: 16 }))),
@@ -3686,7 +3779,7 @@ const DateEditorModal = ({ imageUrl, action, onClose, onComplete }) => {
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev - DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         React.createElement(Icon, { name: "arrow-left", size: 16 }),
                                         " \u0E0B\u0E49\u0E32\u0E22"),
-                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS 0"),
+                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS -145"),
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev + DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         "\u0E02\u0E27\u0E32 ",
                                         React.createElement(Icon, { name: "arrow-right", size: 16 }))),
