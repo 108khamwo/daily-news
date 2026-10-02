@@ -96,11 +96,11 @@
         .cm108-eq-body{padding:16px;overflow:auto}.cm108-eq-mag-wrap{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}.cm108-eq-mag{font-size:38px;line-height:1;font-weight:700;color:#dc2626}.cm108-eq-mag-label{font-size:12px;color:#64748b;font-weight:500}
         .cm108-eq-location{margin-bottom:11px;font-size:14px;line-height:1.6;font-weight:500;color:#1e293b}
         .cm108-eq-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cm108-eq-info{padding:9px 10px;border:1px solid #e2e8f0;border-radius:11px;background:#f8fafc}.cm108-eq-info small{display:block;font-size:10px;font-weight:400;color:#94a3b8}.cm108-eq-info b{display:block;margin-top:2px;font-size:12px;font-weight:500;color:#334155}
-        .cm108-eq-actions{display:flex;gap:8px;margin-top:14px}.cm108-eq-actions button,.cm108-eq-actions a{flex:1;min-height:40px;display:flex;align-items:center;justify-content:center;border-radius:11px;font:600 12px 'Prompt',sans-serif;text-decoration:none;cursor:pointer}.cm108-eq-dismiss{border:1px solid #e2e8f0;background:#fff;color:#475569}.cm108-eq-source{border:1px solid #ea580c;background:#ea580c;color:#fff}
+        .cm108-eq-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}.cm108-eq-actions button,.cm108-eq-actions a{flex:1;min-height:40px;display:flex;align-items:center;justify-content:center;border-radius:11px;font:600 12px 'Prompt',sans-serif;text-decoration:none;cursor:pointer;padding:0 10px;box-sizing:border-box}.cm108-eq-dismiss{border:1px solid #e2e8f0;background:#fff;color:#475569}.cm108-eq-source{border:1px solid #ea580c;background:#ea580c;color:#fff}.cm108-eq-report{border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8}
         .cm108-eq-summary{padding:10px 12px;margin-bottom:10px;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:12px;font-weight:500;line-height:1.55}
         .cm108-eq-history{display:flex;flex-direction:column;gap:8px}.cm108-eq-history-row{display:grid;grid-template-columns:54px 1fr auto;gap:9px;align-items:center;padding:10px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}
         .cm108-eq-history-mag{font-size:22px;line-height:1;font-weight:700;color:#dc2626}.cm108-eq-history-main{min-width:0}.cm108-eq-history-place{font-size:12px;font-weight:500;color:#334155;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cm108-eq-history-meta{margin-top:3px;font-size:10px;font-weight:400;color:#94a3b8}.cm108-eq-history-link{font-size:11px;font-weight:600;color:#ea580c;text-decoration:none;white-space:nowrap}
-        @media(max-width:520px){.cm108-eq-grid{grid-template-columns:1fr}.cm108-eq-body{padding:14px}.cm108-eq-history-row{grid-template-columns:48px 1fr}.cm108-eq-history-link{grid-column:2;justify-self:start}.cm108-eq-card{max-height:calc(100dvh - 24px)}}
+        @media(max-width:520px){.cm108-eq-grid{grid-template-columns:1fr}.cm108-eq-body{padding:14px}.cm108-eq-history-row{grid-template-columns:48px 1fr}.cm108-eq-history-link{grid-column:2;justify-self:start}.cm108-eq-card{max-height:calc(100dvh - 24px)}.cm108-eq-actions button,.cm108-eq-actions a{flex:1 1 100%}}
       `;
       document.head.appendChild(style);
     }
@@ -191,6 +191,7 @@
           </div>
           <div class="cm108-eq-actions">
             <button class="cm108-eq-dismiss" type="button">ปิด</button>
+            <a class="cm108-eq-report" href="https://tmd-earthquake-report.108khamwo.workers.dev/" target="_blank" rel="noopener">สร้างภาพรายงานแผ่นดินไหว</a>
             <a class="cm108-eq-source" href="${esc(sourceUrlOf(ev))}" target="_blank" rel="noopener">ดูข้อมูลกรมอุตุฯ</a>
           </div>
         </div>
@@ -240,10 +241,10 @@
           <button class="cm108-eq-close" type="button" aria-label="ปิด">×</button>
         </div>
         <div class="cm108-eq-body">
-          <div class="cm108-eq-summary">แสดงเหตุที่กรมอุตุนิยมวิทยาระบุว่าเกิดใน จ.เชียงใหม่ ภายใน 24 ชั่วโมงล่าสุด</div>
           <div class="cm108-eq-history">${rows}</div>
           <div class="cm108-eq-actions">
             <button class="cm108-eq-dismiss" type="button">ปิด</button>
+            <a class="cm108-eq-report" href="https://tmd-earthquake-report.108khamwo.workers.dev/" target="_blank" rel="noopener">สร้างภาพรายงานแผ่นดินไหว</a>
             <a class="cm108-eq-source" href="https://earthquake.tmd.go.th/inside.html" target="_blank" rel="noopener">ดูทั้งหมดที่กรมอุตุฯ</a>
           </div>
         </div>
