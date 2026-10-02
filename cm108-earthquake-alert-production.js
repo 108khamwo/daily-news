@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const API_BASE = 'https://cm108-earthquake-monitor--main.108khamwo.deno.net';
+  const DATA_JS_URL = 'https://cm108.com/wp-content/uploads/cm108-earthquake/latest.js';
   const POLL_MS = 30000;
   const MAX_AGE_MS = 24 * 60 * 60 * 1000;
   const POPUP_MAX_AGE_MS = 15 * 60 * 1000;
@@ -340,10 +340,35 @@
     busy = true;
 
     try {
-      const res = await fetch(API_BASE + '/api/latest?_=' + Date.now(), { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-
-      const data = await res.json();
+      const data = await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('earthquake data timeout'));
+        }, 8000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          script.onload = null;
+          script.onerror = null;
+          script.remove();
+        };
+        script.async = true;
+        script.src = DATA_JS_URL + '?_=' + Date.now();
+        script.onload = () => {
+          const payload = window.CM108_EQ_DATA;
+          cleanup();
+          if (!payload || typeof payload !== 'object') {
+            reject(new Error('invalid earthquake payload'));
+            return;
+          }
+          resolve(payload);
+        };
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('earthquake data load failed'));
+        };
+        document.head.appendChild(script);
+      });
       let items = Array.isArray(data?.recent24?.items) ? data.recent24.items : [];
 
       if (!items.length && data?.latest && isWithin24h(data.latest)) {
