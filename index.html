@@ -6,10 +6,10 @@
     <title>รวมข่าวรายวัน CM108</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico?v=0167">
     <link rel="shortcut icon" href="favicon.ico?v=0167">
-    <meta name="cm108-dashboard-version" content="0.1.115">
+    <meta name="cm108-dashboard-version" content="0.1.116">
     <script>
     (() => {
-        const CURRENT_DASHBOARD_VERSION = '0.1.115';
+        const CURRENT_DASHBOARD_VERSION = '0.1.116';
         const CHECK_EVERY_MS = 60000;
         const RELOAD_ATTEMPT_KEY = 'cm108_dashboard_reload_attempt_v1104';
         let checking = false;
@@ -393,7 +393,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'daily-news-app';
 const THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-const IOS_DATE_X_DEFAULT_OFFSET = -145;
+const IOS_DATE_X_DEFAULT_OFFSET = 0; // iOS ต้องเริ่มกึ่งกลางเหมือนแพลตฟอร์มอื่น ห้ามชดเชย X ติดลบ
 const DATE_X_STEP = 1;
 const isIOSMobile = () => {
     if (typeof navigator === 'undefined')
@@ -3298,7 +3298,7 @@ const StandaloneEditor = () => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const dateText = `-${day} ${THAI_MONTHS[month]} ${year}-`;
-            const dateX = image.width / 2 + (isIOSMobileDevice ? dateXOffset : 0);
+            const dateX = boxX + (boxWidth / 2) + (isIOSMobileDevice ? dateXOffset : 0);
             ctx.translate(dateX, rectY);
             ctx.scale(1, 1.15);
             ctx.fillText(dateText, 0, 0);
@@ -3419,7 +3419,7 @@ const StandaloneEditor = () => {
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev - DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         React.createElement(Icon, { name: "arrow-left", size: 16 }),
                                         " \u0E0B\u0E49\u0E32\u0E22"),
-                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS -145"),
+                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E01\u0E36\u0E48\u0E07\u0E01\u0E25\u0E32\u0E07 iOS"),
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev + DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         "\u0E02\u0E27\u0E32 ",
                                         React.createElement(Icon, { name: "arrow-right", size: 16 }))),
@@ -3770,7 +3770,7 @@ const DateEditorModal = ({ imageUrl, action, onClose, onComplete }) => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const dateText = `-${day} ${THAI_MONTHS[month]} ${year}-`;
-            const dateX = image.width / 2 + (isIOSMobileDevice ? dateXOffset : 0);
+            const dateX = boxX + (boxWidth / 2) + (isIOSMobileDevice ? dateXOffset : 0);
             ctx.translate(dateX, rectY);
             ctx.scale(1, 1.15);
             ctx.fillText(dateText, 0, 0);
@@ -3882,7 +3882,7 @@ const DateEditorModal = ({ imageUrl, action, onClose, onComplete }) => {
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev - DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         React.createElement(Icon, { name: "arrow-left", size: 16 }),
                                         " \u0E0B\u0E49\u0E32\u0E22"),
-                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E04\u0E48\u0E32 iOS -145"),
+                                    React.createElement("button", { type: "button", onClick: () => setDateXOffset(IOS_DATE_X_DEFAULT_OFFSET), className: "py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600 hover:bg-indigo-100 font-bold text-xs" }, "\u0E01\u0E36\u0E48\u0E07\u0E01\u0E25\u0E32\u0E07 iOS"),
                                     React.createElement("button", { type: "button", onClick: () => setDateXOffset(prev => prev + DATE_X_STEP), className: "py-2.5 bg-white border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-100 font-bold flex items-center justify-center gap-1" },
                                         "\u0E02\u0E27\u0E32 ",
                                         React.createElement(Icon, { name: "arrow-right", size: 16 }))),
